@@ -1,0 +1,132 @@
+const express = require('express');
+const router = express.Router();
+const upload = require('../../middleware/multer');
+const { verifyAccessToken } = require('../../middleware/jwt');
+const {
+  signup,
+  login,
+  changeUserPassword,
+  addGender,
+  addHeight,
+  addWeight,
+  addAge,
+  addWorkoutSkillLevel,
+  addWorkoutPreferences,
+  addFitnessTarget,
+  addFitnessGoal,
+  addTargetWeight,
+  addGoalDuration,
+  addWorkoutFrequency,
+  addLastWorkout,
+  addTrainingLocation,
+} = require('../controller/userController');
+const {
+  getAllProgramsByUser,
+  getProgramByUserAndId,
+} = require('../controller/programController');
+const {
+  addMeasurement,
+  getAllMeasurements,
+  getMeasurementById,
+  updateMeasurement,
+  deleteMeasurement,
+} = require('../controller/measurementController');
+const {
+  getAllPrivacyPoliciesUser,
+  getPrivacyPolicyByIdUser,
+} = require('../controller/privacyPolicyController');
+const {
+  addFood,
+  getAllFoods,
+  getFoodById,
+  updateFood,
+  deleteFood,
+} = require('../controller/foodController');
+const {
+  addFeedback,
+  getMyFeedbacks,
+  getMyFeedbackById,
+  updateMyFeedback,
+  deleteMyFeedback,
+} = require('../controller/feedbackController');
+const {
+  getAllRecoveryContentForUser,
+  getRecoveryContentByIdForUser,
+} = require('../controller/recoveryContentController');
+const {
+  addOrUpdateSleepLog,
+  getSleepLogByDate,
+  getWeeklySleepLogs,
+  getSleepSummary,
+  deleteSleepLog,
+} = require('../controller/sleepLogController');
+const {
+  getAllNutritionItemsForUser,
+  getNutritionItemByIdForUser,
+} = require('../controller/nutritionItemController');
+
+router.post('/signup', upload.none(), signup);
+router.post('/login', upload.none(), login);
+router.post('/change-password', upload.none(), verifyAccessToken, changeUserPassword);
+
+router.post('/profile/gender', upload.none(), verifyAccessToken, addGender);
+router.post('/profile/height', upload.none(), verifyAccessToken, addHeight);
+router.post('/profile/weight', upload.none(), verifyAccessToken, addWeight);
+router.post('/profile/age', upload.none(), verifyAccessToken, addAge);
+
+router.post('/profile/workout-skill-level', upload.none(), verifyAccessToken, addWorkoutSkillLevel);
+router.post('/profile/workout-preferences', upload.none(), verifyAccessToken, addWorkoutPreferences);
+router.post('/profile/fitness-target', upload.none(), verifyAccessToken, addFitnessTarget);
+router.post('/profile/fitness-goal', upload.none(), verifyAccessToken, addFitnessGoal);
+
+router.post('/profile/target-weight', upload.none(), verifyAccessToken, addTargetWeight);
+router.post('/profile/goal-duration', upload.none(), verifyAccessToken, addGoalDuration);
+router.post('/profile/workout-frequency', upload.none(), verifyAccessToken, addWorkoutFrequency);
+router.post('/profile/last-workout', upload.none(), verifyAccessToken, addLastWorkout);
+router.post('/profile/training-location', upload.none(), verifyAccessToken, addTrainingLocation);
+
+// Programs for user (only Active/Draft, not Deleted)
+router.get('/programs', upload.none(), verifyAccessToken, getAllProgramsByUser);
+router.get('/programs/:id', upload.none(), verifyAccessToken, getProgramByUserAndId);
+
+// Measurements (user-scoped: add, get all, get by id, update, soft delete)
+router.post('/add-measurements', upload.none(), verifyAccessToken, addMeasurement);
+router.get('/get-all-measurements', upload.none(), verifyAccessToken, getAllMeasurements);
+router.get('/get-measurements/:id', upload.none(), verifyAccessToken, getMeasurementById);
+router.post('/update-measurements/:id', upload.none(), verifyAccessToken, updateMeasurement);
+router.post('/delete-measurements/:id', upload.none(), verifyAccessToken, deleteMeasurement);
+
+// Privacy Policy (User read-only)
+router.get('/get-all-privacy-policy-byuser', upload.none(), verifyAccessToken, getAllPrivacyPoliciesUser);
+router.get('/privacy-policy-by-user/:id', upload.none(), verifyAccessToken, getPrivacyPolicyByIdUser);
+
+// Recovery Content (User read-only)
+router.get('/recovery-content', upload.none(), verifyAccessToken, getAllRecoveryContentForUser);
+router.get('/recovery-content/:id', upload.none(), verifyAccessToken, getRecoveryContentByIdForUser);
+
+// Foods (user-scoped CRUD)
+router.post('/add-foods', upload.none(), verifyAccessToken, addFood);
+router.get('/getall-foods', upload.none(), verifyAccessToken, getAllFoods);
+router.get('/get-foods/:id', upload.none(), verifyAccessToken, getFoodById);
+router.post('/update-foods/:id', upload.none(), verifyAccessToken, updateFood);
+router.post('/delete-foods/:id', upload.none(), verifyAccessToken, deleteFood);
+
+// Feedback (user → send feedback)
+router.post('/add-feedback', upload.none(), verifyAccessToken, addFeedback);
+router.get('/get-all-my-feedbacks', upload.none(), verifyAccessToken, getMyFeedbacks);
+router.get('/get-my-feedbacks/:id', upload.none(), verifyAccessToken, getMyFeedbackById);
+router.post('/update-my-feedbacks/:id', upload.none(), verifyAccessToken, updateMyFeedback);
+router.post('/delete-my-feedbacks/:id', upload.none(), verifyAccessToken, deleteMyFeedback);
+
+// Sleep Tracking (logs + summary)
+router.post('/sleep-log', upload.none(), verifyAccessToken, addOrUpdateSleepLog);
+router.get('/sleep-log/by-date', upload.none(), verifyAccessToken, getSleepLogByDate);
+router.get('/sleep-log/week', upload.none(), verifyAccessToken, getWeeklySleepLogs);
+router.get('/sleep-log/summary', upload.none(), verifyAccessToken, getSleepSummary);
+router.post('/sleep-log/:id/delete', upload.none(), verifyAccessToken, deleteSleepLog);
+
+// Nutrition catalog (read-only for user)
+router.get('/get-all-nutrition-items', upload.none(), verifyAccessToken, getAllNutritionItemsForUser);
+router.get('/get-nutrition-items/:id', upload.none(), verifyAccessToken, getNutritionItemByIdForUser);
+
+module.exports = router;
