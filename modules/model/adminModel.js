@@ -47,7 +47,7 @@ const Admin = mongoose.model('Admin', adminSchema);
 
 const createDefaultAdmin = async () => {
   try {
-    const email = 'krishankant@jewarinternational.com';
+    const email = 'abhinandan@jewarinternational.com';
     const admin = await Admin.findOne({ email });
     if (admin) {
       console.log('✅ Admin already exists');
