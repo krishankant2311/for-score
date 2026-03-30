@@ -23,6 +23,7 @@ const {
 const {
   getAllProgramsByUser,
   getProgramByUserAndId,
+  getRecommendedProgramByUserProfile,
 } = require('../controller/programController');
 const {
   addMeasurement,
@@ -35,6 +36,37 @@ const {
   getAllPrivacyPoliciesUser,
   getPrivacyPolicyByIdUser,
 } = require('../controller/privacyPolicyController');
+const {
+  getAboutAppForUser,
+} = require('../controller/aboutAppController');
+const {
+  getSocialMediaForUser,
+} = require('../controller/socialMediaController');
+const {
+  getQuotesForUser,
+} = require('../controller/quoteController');
+const {
+  addOrUpdateWorkoutLog,
+  getWorkoutLogsByDate,
+  getWorkoutSummaryByDate,
+  getWorkoutHistoryByExercise,
+  getWorkoutLogById,
+  deleteWorkoutLog,
+} = require('../controller/workoutLogController');
+const {
+  addProgressPhoto,
+  getLatestProgressPhotos,
+  getProgressPhotoTimeline,
+  getProgressPhotoById,
+  deleteProgressPhoto,
+} = require('../controller/progressPhotoController');
+const {
+  addOrUpdateMealLog,
+  getDailyNutritionSummary,
+  getDailyMeals,
+  getSuggestedMenu,
+  deleteMealLog,
+} = require('../controller/nutritionDashboardController');
 const {
   addFood,
   getAllFoods,
@@ -88,6 +120,7 @@ router.post('/profile/training-location', upload.none(), verifyAccessToken, addT
 // Programs for user (only Active/Draft, not Deleted)
 router.get('/programs', upload.none(), verifyAccessToken, getAllProgramsByUser);
 router.get('/programs/:id', upload.none(), verifyAccessToken, getProgramByUserAndId);
+router.get('/programs/recommended/me', upload.none(), verifyAccessToken, getRecommendedProgramByUserProfile);
 
 // Measurements (user-scoped: add, get all, get by id, update, soft delete)
 router.post('/add-measurements', upload.none(), verifyAccessToken, addMeasurement);
@@ -99,6 +132,11 @@ router.post('/delete-measurements/:id', upload.none(), verifyAccessToken, delete
 // Privacy Policy (User read-only)
 router.get('/get-all-privacy-policy-byuser', upload.none(), verifyAccessToken, getAllPrivacyPoliciesUser);
 router.get('/privacy-policy-by-user/:id', upload.none(), verifyAccessToken, getPrivacyPolicyByIdUser);
+
+// About App / Social / Quotes (User read-only)
+router.get('/about-app', upload.none(), verifyAccessToken, getAboutAppForUser);
+router.get('/social-media', upload.none(), verifyAccessToken, getSocialMediaForUser);
+router.get('/quotes', upload.none(), verifyAccessToken, getQuotesForUser);
 
 // Recovery Content (User read-only)
 router.get('/recovery-content', upload.none(), verifyAccessToken, getAllRecoveryContentForUser);
@@ -128,5 +166,27 @@ router.post('/sleep-log/:id/delete', upload.none(), verifyAccessToken, deleteSle
 // Nutrition catalog (read-only for user)
 router.get('/get-all-nutrition-items', upload.none(), verifyAccessToken, getAllNutritionItemsForUser);
 router.get('/get-nutrition-items/:id', upload.none(), verifyAccessToken, getNutritionItemByIdForUser);
+
+// Workout Logging (user workouts)
+router.post('/workouts', upload.none(), verifyAccessToken, addOrUpdateWorkoutLog);
+router.get('/workouts/by-date', upload.none(), verifyAccessToken, getWorkoutLogsByDate);
+router.get('/workouts/summary', upload.none(), verifyAccessToken, getWorkoutSummaryByDate);
+router.get('/workouts/history', upload.none(), verifyAccessToken, getWorkoutHistoryByExercise);
+router.get('/workouts/:id', upload.none(), verifyAccessToken, getWorkoutLogById);
+router.post('/workouts/:id/delete', upload.none(), verifyAccessToken, deleteWorkoutLog);
+
+// Progress Photos (Mission Log)
+router.post('/progress-photos', upload.single('photo'), verifyAccessToken, addProgressPhoto);
+router.get('/progress-photos/latest', upload.none(), verifyAccessToken, getLatestProgressPhotos);
+router.get('/progress-photos/timeline', upload.none(), verifyAccessToken, getProgressPhotoTimeline);
+router.get('/progress-photos/:id', upload.none(), verifyAccessToken, getProgressPhotoById);
+router.post('/progress-photos/:id/delete', upload.none(), verifyAccessToken, deleteProgressPhoto);
+
+// Nutrition Dashboard (Today’s Nutrition)
+router.post('/meals', upload.none(), verifyAccessToken, addOrUpdateMealLog);
+router.get('/nutrition/summary', upload.none(), verifyAccessToken, getDailyNutritionSummary);
+router.get('/nutrition/meals', upload.none(), verifyAccessToken, getDailyMeals);
+router.get('/nutrition/suggested-menu', upload.none(), verifyAccessToken, getSuggestedMenu);
+router.post('/meals/:id/delete', upload.none(), verifyAccessToken, deleteMealLog);
 
 module.exports = router;

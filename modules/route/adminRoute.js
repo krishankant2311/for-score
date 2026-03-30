@@ -68,6 +68,27 @@ const {
   deletePrivacyPolicy,
 } = require('../controller/privacyPolicyController');
 const {
+  addAboutApp,
+  getAllAboutAppAdmin,
+  getAboutAppByIdAdmin,
+  updateAboutApp,
+  deleteAboutApp,
+} = require('../controller/aboutAppController');
+const {
+  addSocialMedia,
+  getAllSocialMediaAdmin,
+  getSocialMediaByIdAdmin,
+  updateSocialMedia,
+  deleteSocialMedia,
+} = require('../controller/socialMediaController');
+const {
+  addQuote,
+  getAllQuotesAdmin,
+  getQuoteByIdAdmin,
+  updateQuote,
+  deleteQuote,
+} = require('../controller/quoteController');
+const {
   getAllFeedbackAdmin,
   getFeedbackByIdAdmin,
   updateFeedbackStatus,
@@ -133,10 +154,31 @@ router.get('/getprivacy-policy/:id', upload.none(), verifyAccessToken, getPrivac
 router.post('/update-privacy-policy/:id', upload.none(), verifyAccessToken, updatePrivacyPolicy);
 router.post('/delete-privacy-policy/:id', upload.none(), verifyAccessToken, deletePrivacyPolicy);
 
+// About App (Admin CRUD)
+router.post('/about-app', upload.none(), verifyAccessToken, addAboutApp);
+router.get('/getAll-about-app', upload.none(), verifyAccessToken, getAllAboutAppAdmin);
+router.get('/getabout-app/:id', upload.none(), verifyAccessToken, getAboutAppByIdAdmin);
+router.post('/update-about-app/:id', upload.none(), verifyAccessToken, updateAboutApp);
+router.post('/delete-about-app/:id', upload.none(), verifyAccessToken, deleteAboutApp);
+
+// Social Media (Admin CRUD)
+router.post('/social-media', upload.none(), verifyAccessToken, addSocialMedia);
+router.get('/getAll-social-media', upload.none(), verifyAccessToken, getAllSocialMediaAdmin);
+router.get('/getsocial-media/:id', upload.none(), verifyAccessToken, getSocialMediaByIdAdmin);
+router.post('/update-social-media/:id', upload.none(), verifyAccessToken, updateSocialMedia);
+router.post('/delete-social-media/:id', upload.none(), verifyAccessToken, deleteSocialMedia);
+
+// Quotes (Admin CRUD)
+router.post('/add-quotes', upload.none(), verifyAccessToken, addQuote);
+router.get('/getAll-quotes', upload.none(), verifyAccessToken, getAllQuotesAdmin);
+router.get('/getquotes/:id', upload.none(), verifyAccessToken, getQuoteByIdAdmin);
+router.post('/update-quotes/:id', upload.none(), verifyAccessToken, updateQuote);
+router.post('/delete-quotes/:id', upload.none(), verifyAccessToken, deleteQuote);
+
 // Feedback (Admin view & manage)
-router.get('/feedback', upload.none(), verifyAccessToken, getAllFeedbackAdmin);
-router.get('/feedback/:id', upload.none(), verifyAccessToken, getFeedbackByIdAdmin);
-router.post('/feedback/:id/status', upload.none(), verifyAccessToken, updateFeedbackStatus);
-router.post('/feedback/:id/delete', upload.none(), verifyAccessToken, deleteFeedback);
+router.get('/get-all-feedback-byadmin', upload.none(), verifyAccessToken, getAllFeedbackAdmin);
+router.get('/get-feedback-byadmin/:id', upload.none(), verifyAccessToken, getFeedbackByIdAdmin);
+router.post('/update-feedback-status-byadmin/:id', upload.none(), verifyAccessToken, updateFeedbackStatus);
+router.post('/delete-feedback-byadmin/:id', upload.none(), verifyAccessToken, deleteFeedback);
 
 module.exports = router;
