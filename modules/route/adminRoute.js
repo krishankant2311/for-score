@@ -8,6 +8,8 @@ const {
   adminLogin,
   logoutAdmin,
   changePassword,
+  forgotPassword,
+  resetPassword,
   getAdminProfile,
   updateAdminProfile,
   getAllUsers,
@@ -98,6 +100,8 @@ const {
 router.post('/login', upload.none(), adminLogin);
 router.post('/logout', upload.none(), verifyAccessToken, logoutAdmin);
 router.post('/change-password', upload.none(), verifyAccessToken, changePassword);
+router.post('/forgot-password', upload.none(), forgotPassword);
+router.post('/reset-password', upload.none(), resetPassword);
 router.get('/profile', upload.none(), verifyAccessToken, getAdminProfile);
 router.post('/profile', upload.none(), verifyAccessToken, updateAdminProfile);
 router.get('/get-all-users', upload.none(), verifyAccessToken, getAllUsers);
@@ -112,10 +116,10 @@ router.post('/users/:id', upload.none(), verifyAccessToken, deleteUser);
 
 // Exercise management (order: list/add before :id)
 router.post('/exercises', verifyAccessToken, uploadExerciseMedia.single('media'), addExercise);
-router.get('/exercises', upload.none(), verifyAccessToken, getAllExercises);
-router.get('/exercises/:id', upload.none(), verifyAccessToken, getExerciseById);
-router.put('/exercises/:id', verifyAccessToken, uploadExerciseMedia.single('media'), updateExercise);
-router.delete('/exercises/:id', upload.none(), verifyAccessToken, deleteExercise);
+router.get('/get-all-exercises', upload.none(), verifyAccessToken, getAllExercises);
+router.get('/get-exercises/:id', upload.none(), verifyAccessToken, getExerciseById);
+router.put('/update-exercises/:id', verifyAccessToken, uploadExerciseMedia.single('media'), updateExercise);
+router.delete('/delete-exercises/:id', upload.none(), verifyAccessToken, deleteExercise);
 
 // Diet plan (Nutrition & Macros)
 router.post('/diet-plans', upload.none(), verifyAccessToken, addDietPlan);

@@ -2,6 +2,7 @@ const { Admin } = require('../model/adminModel');
 const User = require('../model/userModel');
 const bcrypt = require('bcryptjs');
 const { generateAccessToken } = require('../../middleware/jwt');
+const crypto = require('crypto');
 
 const isPasswordValid = (password) => {
   if (password.length < 8) return false;
@@ -10,6 +11,167 @@ const isPasswordValid = (password) => {
   if (!/[0-9]/.test(password)) return false;
   if (!/[!@#$%^&*(),.?":{}|<>]/.test(password)) return false;
   return true;
+};
+
+// ----------------- Admin Forgot/Reset Password -----------------
+
+// 1) Forgot password: generate a reset token for given email
+const forgotPassword = async (req, res) => {
+  try {
+    let { email } = req.body;
+    email = email?.trim()?.toLowerCase();
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email is required',
+        result: {},
+      });
+    }
+
+    const admin = await Admin.findOne({ email });
+    if (!admin) {
+      return res.status(404).json({
+        success: false,
+        message: 'Admin not found',
+        result: {},
+      });
+    }
+
+    if (admin.status === 'Deleted') {
+      return res.status(400).json({
+        success: false,
+        message: 'Admin account has been deleted',
+        result: {},
+      });
+    }
+
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+
+    admin.securityToken = resetToken;
+    admin.otp.otpValue = resetToken; // reuse existing otp field
+    admin.otp.otpExpiry = expiresAt;
+    await admin.save();
+
+    // Note: in production, token should be emailed. For now we return it for testing.
+    return res.status(200).json({
+      success: true,
+      message: 'Reset token generated successfully',
+      result: { resetToken, expiresAt },
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: err.message,
+      result: {},
+    });
+  }
+};
+
+// 2) Reset password: verify reset token + update password
+const resetPassword = async (req, res) => {
+  try {
+    let { securityToken, newPassword, confirmPassword } = req.body;
+    securityToken = securityToken?.trim();
+    newPassword = newPassword?.trim();
+    confirmPassword = confirmPassword?.trim();
+
+    if (!securityToken) {
+      return res.status(400).json({
+        success: false,
+        message: 'securityToken is required',
+        result: {},
+      });
+    }
+    if (!newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'New password is required',
+        result: {},
+      });
+    }
+    if (!confirmPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Confirm password is required',
+        result: {},
+      });
+    }
+
+    if (!isPasswordValid(newPassword)) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'Password must have at least one uppercase, one lowercase, one number, and one symbol (min 8 characters)',
+        result: {},
+      });
+    }
+
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Confirm password must be same as new password',
+        result: {},
+      });
+    }
+
+    const admin = await Admin.findOne({ securityToken });
+    if (!admin) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid reset token',
+        result: {},
+      });
+    }
+
+    if (admin.status === 'Deleted') {
+      return res.status(400).json({
+        success: false,
+        message: 'Admin account has been deleted',
+        result: {},
+      });
+    }
+
+    if (!admin.otp?.otpExpiry || admin.otp.otpExpiry < new Date()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Reset token has expired',
+        result: {},
+      });
+    }
+
+    const isSameAsOld = await bcrypt.compare(newPassword, admin.password);
+    if (isSameAsOld) {
+      return res.status(400).json({
+        success: false,
+        message: 'New password cannot be same as old password',
+        result: {},
+      });
+    }
+
+    admin.password = await bcrypt.hash(newPassword, 10);
+    admin.securityToken = '';
+    admin.otp.otpValue = '';
+    admin.otp.otpExpiry = null;
+    await admin.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Password reset successfully',
+      result: {},
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: err.message,
+      result: {},
+    });
+  }
 };
 
 const adminLogin = async (req, res) => {
@@ -598,6 +760,8 @@ module.exports = {
   adminLogin,
   logoutAdmin,
   changePassword,
+  forgotPassword,
+  resetPassword,
   getAdminProfile,
   updateAdminProfile,
   getAllUsers,
