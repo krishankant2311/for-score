@@ -39,10 +39,10 @@ const addPrivacyPolicy = async (req, res) => {
 
     const { title, content, lastUpdated } = req.body;
 
-    if (!title || !content) {
+    if (!content) {
       return res.status(400).json({
         success: false,
-        message: 'title and content are required',
+        message: ' content are required',
       });
     }
 
