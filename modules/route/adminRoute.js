@@ -96,6 +96,10 @@ const {
   updateFeedbackStatus,
   deleteFeedback,
 } = require('../controller/feedbackController');
+const {
+  getAppSettings,
+  saveAppSettings,
+} = require('../controller/appSettingsController');
 
 router.post('/login', upload.none(), adminLogin);
 router.post('/logout', upload.none(), verifyAccessToken, logoutAdmin);
@@ -104,6 +108,8 @@ router.post('/forgot-password', upload.none(), forgotPassword);
 router.post('/reset-password', upload.none(), resetPassword);
 router.get('/profile', upload.none(), verifyAccessToken, getAdminProfile);
 router.post('/profile', upload.none(), verifyAccessToken, updateAdminProfile);
+router.get('/get-app-settings', upload.none(), verifyAccessToken, getAppSettings);
+router.post('/save-app-settings', upload.none(), verifyAccessToken, saveAppSettings);
 router.get('/get-all-users', upload.none(), verifyAccessToken, getAllUsers);
 router.get('/get-all-active-users', upload.none(), verifyAccessToken, getAllActiveUsersByAdmin);
 router.get('/get-all-blocked-users', upload.none(), verifyAccessToken, getAllBlockedUsersByAdmin);
