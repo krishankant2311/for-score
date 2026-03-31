@@ -32,15 +32,30 @@ const addAboutApp = async (req, res) => {
       });
     }
 
-    const about = await AboutApp.create({
-      title: (title || '').trim(),
-      content: content.trim(),
-      lastUpdated: lastUpdated ? new Date(lastUpdated) : new Date(),
-    });
+    // Keep a single about-app document: second add acts as update.
+    let about = await AboutApp.findOne({ status: { $ne: 'Deleted' } }).sort({ createdAt: -1 });
+    const isUpdate = !!about;
+
+    if (!about) {
+      about = await AboutApp.create({
+        title: (title || '').trim(),
+        content: content.trim(),
+        lastUpdated: lastUpdated ? new Date(lastUpdated) : new Date(),
+        status: 'Active',
+      });
+    } else {
+      about.title = (title || '').trim();
+      about.content = content.trim();
+      about.lastUpdated = lastUpdated ? new Date(lastUpdated) : new Date();
+      about.status = 'Active';
+      await about.save();
+    }
 
     return res.json({
       success: true,
-      message: 'About app content added successfully',
+      message: isUpdate
+        ? 'About app content updated successfully'
+        : 'About app content added successfully',
       result: about,
     });
   } catch (err) {

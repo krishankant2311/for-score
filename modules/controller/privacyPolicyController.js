@@ -46,15 +46,30 @@ const addPrivacyPolicy = async (req, res) => {
       });
     }
 
-    const policy = await PrivacyPolicy.create({
-      title: title.trim(),
-      content: content.trim(),
-      lastUpdated: lastUpdated ? new Date(lastUpdated) : new Date(),
-    });
+    // Keep a single privacy policy document: second add acts as update.
+    let policy = await PrivacyPolicy.findOne({ status: { $ne: 'Deleted' } }).sort({ createdAt: -1 });
+    const isUpdate = !!policy;
+
+    if (!policy) {
+      policy = await PrivacyPolicy.create({
+        title: title.trim(),
+        content: content.trim(),
+        lastUpdated: lastUpdated ? new Date(lastUpdated) : new Date(),
+        status: 'Active',
+      });
+    } else {
+      policy.title = title.trim();
+      policy.content = content.trim();
+      policy.lastUpdated = lastUpdated ? new Date(lastUpdated) : new Date();
+      policy.status = 'Active';
+      await policy.save();
+    }
 
     return res.json({
       success: true,
-      message: 'Privacy policy added successfully',
+      message: isUpdate
+        ? 'Privacy policy updated successfully'
+        : 'Privacy policy added successfully',
       result: policy,
     });
   } catch (err) {
