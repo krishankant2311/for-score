@@ -4,8 +4,9 @@ const privacyPolicySchema = new mongoose.Schema(
   {
     title: {
       type: String,
-      required: true,
-      trim: true,
+      // required: true,
+      // trim: true,
+      default: '',  
     },
     content: {
       type: String,
