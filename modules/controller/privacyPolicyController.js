@@ -52,13 +52,13 @@ const addPrivacyPolicy = async (req, res) => {
 
     if (!policy) {
       policy = await PrivacyPolicy.create({
-        title: title.trim(),
+        title: title,
         content: content.trim(),
         lastUpdated: lastUpdated ? new Date(lastUpdated) : new Date(),
         status: 'Active',
       });
     } else {
-      policy.title = title.trim();
+      policy.title = title;
       policy.content = content.trim();
       policy.lastUpdated = lastUpdated ? new Date(lastUpdated) : new Date();
       policy.status = 'Active';
