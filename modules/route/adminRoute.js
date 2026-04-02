@@ -143,12 +143,12 @@ router.delete('/delete-nutrition-items/:id', upload.none(), verifyAccessToken, d
 router.get('/get-nutrition-items-stats', upload.none(), verifyAccessToken, getNutritionStats);
 
 // Recovery Content (Breathing, Stretching, Sleep, etc.)
-router.post('/recovery-content', verifyAccessToken, uploadExerciseMedia.single('media'), addRecoveryContent);
-router.get('/recovery-content', upload.none(), verifyAccessToken, getAllRecoveryContent);
-router.get('/recovery-content/stats', upload.none(), verifyAccessToken, getRecoveryContentStats);
-router.get('/recovery-content/:id', upload.none(), verifyAccessToken, getRecoveryContentById);
-router.put('/recovery-content/:id', verifyAccessToken, uploadExerciseMedia.single('media'), updateRecoveryContent);
-router.delete('/recovery-content/:id', upload.none(), verifyAccessToken, deleteRecoveryContent);
+router.post('/add-recovery-content', verifyAccessToken, uploadExerciseMedia.single('media'), addRecoveryContent);
+router.get('/get-all-recovery-content', upload.none(), verifyAccessToken, getAllRecoveryContent);
+router.get('/get-recovery-content-stats', upload.none(), verifyAccessToken, getRecoveryContentStats);
+router.get('/get-recovery-content/:id', upload.none(), verifyAccessToken, getRecoveryContentById);
+router.put('/update-recovery-content/:id', verifyAccessToken, uploadExerciseMedia.single('media'), updateRecoveryContent);
+router.delete('/delete-recovery-content/:id', upload.none(), verifyAccessToken, deleteRecoveryContent);
 
 // Programs (Workout Programs)
 router.post('/add-programs', upload.none(), verifyAccessToken, addProgram);
