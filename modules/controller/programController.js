@@ -22,9 +22,31 @@ const parseStringArray = (value) => {
     return parsed.map((v) => String(v).trim()).filter(Boolean);
   }
   if (typeof parsed === 'string' && parsed.trim()) {
-    return [parsed.trim()];
+    return parsed
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .filter(Boolean);
   }
   return [];
+};
+
+const parseOptionalNumber = (value) => {
+  if (value === '' || value == null) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+};
+
+/** Keeps `quickStats` in sync with top-level fields for mobile badges / legacy clients */
+const syncQuickStatsFromProgramFields = (p) => {
+  const equipment = Array.isArray(p.equipment) ? p.equipment : [];
+  p.quickStats = {
+    level: p.workoutSkillLevel || '',
+    duration: p.durationWeeks != null ? String(p.durationWeeks) : '',
+    frequency: p.daysPerWeek != null ? String(p.daysPerWeek) : '',
+    avgSessionMinutes: p.avgSessionMinutes,
+    locationTag: (p.locationTag || '').trim(),
+    necessaryEquipment: equipment,
+  };
 };
 
 // 1. Add Program
@@ -60,6 +82,10 @@ const addProgram = async (req, res) => {
       whatsInside,
       isThisForYou,
       goalText,
+      durationWeeks,
+      daysPerWeek,
+      avgSessionMinutes,
+      equipment,
       quickStats,
       weekGrid,
       exerciseLibrary,
@@ -67,17 +93,15 @@ const addProgram = async (req, res) => {
     } = req.body;
 
     if (
-      !programName ||
-      !primaryGoal ||
-      !locationTag ||
-      !workoutSkillLevel ||
-      !workoutPreference ||
-      !frequency
+      !programName?.trim() ||
+      !String(subHeader ?? '').trim() ||
+      !String(overview ?? '').trim() ||
+      !workoutSkillLevel
     ) {
       return res.status(400).json({
         success: false,
         message:
-          'programName, primaryGoal, locationTag, workoutSkillLevel, workoutPreference and frequency are required',
+          'programName, subHeader, overview and workoutSkillLevel (Level) are required',
       });
     }
 
@@ -90,26 +114,57 @@ const addProgram = async (req, res) => {
     }
 
     const statusVal =
-      status && ['Active', 'Draft'].includes(status) ? status : 'Active';
+      status && ['Active', 'Inactive', 'Draft'].includes(status) ? status : 'Active';
 
-    const program = await Program.create({
+    const goalTrim = (goalText || '').trim();
+    const primaryGoalVal =
+      (primaryGoal && String(primaryGoal).trim()) || goalTrim || '';
+    const durationWeeksNum = parseOptionalNumber(durationWeeks);
+    const daysPerWeekNum = parseOptionalNumber(daysPerWeek);
+    const avgSessionNum = parseOptionalNumber(avgSessionMinutes);
+    const equipmentArr = parseStringArray(equipment);
+    const freqStr =
+      (frequency && String(frequency).trim()) ||
+      (daysPerWeekNum != null ? String(daysPerWeekNum) : '');
+
+    const doc = {
       programName: programName.trim(),
-      primaryGoal: primaryGoal.trim(),
-      locationTag: locationTag.trim(),
+      primaryGoal: primaryGoalVal,
+      locationTag: (locationTag != null ? String(locationTag) : '').trim(),
       workoutSkillLevel,
-      workoutPreference: workoutPreference.trim(),
-      frequency: frequency.trim(),
-      subHeader: (subHeader || '').trim(),
-      overview: (overview || '').trim(),
+      workoutPreference: (workoutPreference != null ? String(workoutPreference) : '').trim(),
+      frequency: freqStr,
+      durationWeeks: durationWeeksNum,
+      daysPerWeek: daysPerWeekNum,
+      avgSessionMinutes: avgSessionNum,
+      equipment: equipmentArr,
+      subHeader: String(subHeader).trim(),
+      overview: String(overview).trim(),
       whatsInside: parseStringArray(whatsInside),
       isThisForYou: parseStringArray(isThisForYou),
-      goalText: (goalText || '').trim(),
-      quickStats: parseJsonIfString(quickStats, {}),
+      goalText: goalTrim,
       weekGrid: parseJsonIfString(weekGrid, {}),
       exerciseLibrary: parseJsonIfString(exerciseLibrary, {}),
       recoveryProtocol: parseJsonIfString(recoveryProtocol, {}),
       status: statusVal,
-    });
+    };
+    syncQuickStatsFromProgramFields(doc);
+    if (quickStats != null) {
+      const qsExtra = parseJsonIfString(quickStats, {});
+      if (Object.keys(qsExtra).length) {
+        doc.quickStats = { ...doc.quickStats, ...qsExtra };
+        if (
+          qsExtra.necessaryEquipment &&
+          (!equipmentArr || !equipmentArr.length)
+        ) {
+          doc.equipment = Array.isArray(qsExtra.necessaryEquipment)
+            ? qsExtra.necessaryEquipment.map((x) => String(x).trim()).filter(Boolean)
+            : parseStringArray(qsExtra.necessaryEquipment);
+        }
+      }
+    }
+
+    const program = await Program.create(doc);
 
     return res.json({
       success: true,
@@ -163,7 +218,11 @@ const getAllPrograms = async (req, res) => {
         search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
         'i'
       );
-      query.$or = [{ programName: regex }, { primaryGoal: regex }];
+      query.$or = [
+        { programName: regex },
+        { primaryGoal: regex },
+        { subHeader: regex },
+      ];
     }
     if (primaryGoal) {
       query.primaryGoal = new RegExp(
@@ -185,6 +244,7 @@ const getAllPrograms = async (req, res) => {
       );
     }
     if (statusFilter === 'active') query.status = 'Active';
+    else if (statusFilter === 'inactive') query.status = 'Inactive';
     else if (statusFilter === 'draft') query.status = 'Draft';
     else if (statusFilter === 'deleted') query.status = 'Deleted';
 
@@ -296,6 +356,10 @@ const updateProgram = async (req, res) => {
       whatsInside,
       isThisForYou,
       goalText,
+      durationWeeks,
+      daysPerWeek,
+      avgSessionMinutes,
+      equipment,
       quickStats,
       weekGrid,
       exerciseLibrary,
@@ -312,33 +376,51 @@ const updateProgram = async (req, res) => {
 
     if (programName != null && programName !== '')
       program.programName = programName.trim();
-    if (primaryGoal != null && primaryGoal !== '')
-      program.primaryGoal = primaryGoal.trim();
-    if (locationTag != null && locationTag !== '')
-      program.locationTag = locationTag.trim();
+    if (primaryGoal != null) program.primaryGoal = String(primaryGoal || '').trim();
+    if (locationTag != null) program.locationTag = String(locationTag || '').trim();
     if (
       workoutSkillLevel &&
       ['Beginner', 'Intermediate', 'Advanced', 'Any', 'Beg / Int'].includes(workoutSkillLevel)
     ) {
       program.workoutSkillLevel = workoutSkillLevel;
     }
-    if (workoutPreference != null && workoutPreference !== '')
-      program.workoutPreference = workoutPreference.trim();
-    if (frequency != null && frequency !== '')
-      program.frequency = frequency.trim();
+    if (workoutPreference != null) program.workoutPreference = String(workoutPreference || '').trim();
+    if (frequency != null) program.frequency = String(frequency || '').trim();
     if (subHeader != null) program.subHeader = String(subHeader || '').trim();
     if (overview != null) program.overview = String(overview || '').trim();
     if (whatsInside != null) program.whatsInside = parseStringArray(whatsInside);
     if (isThisForYou != null) program.isThisForYou = parseStringArray(isThisForYou);
     if (goalText != null) program.goalText = String(goalText || '').trim();
-    if (quickStats != null) program.quickStats = parseJsonIfString(quickStats, {});
+    if (durationWeeks !== undefined)
+      program.durationWeeks = parseOptionalNumber(durationWeeks);
+    if (daysPerWeek !== undefined)
+      program.daysPerWeek = parseOptionalNumber(daysPerWeek);
+    if (avgSessionMinutes !== undefined)
+      program.avgSessionMinutes = parseOptionalNumber(avgSessionMinutes);
+    if (equipment != null)
+      program.equipment = parseStringArray(equipment);
     if (weekGrid != null) program.weekGrid = parseJsonIfString(weekGrid, {});
     if (exerciseLibrary != null)
       program.exerciseLibrary = parseJsonIfString(exerciseLibrary, {});
     if (recoveryProtocol != null)
       program.recoveryProtocol = parseJsonIfString(recoveryProtocol, {});
-    if (status && ['Active', 'Draft', 'Deleted'].includes(status))
+    if (status && ['Active', 'Inactive', 'Draft', 'Deleted'].includes(status))
       program.status = status;
+
+    syncQuickStatsFromProgramFields(program);
+    if (quickStats != null) {
+      const qsExtra = parseJsonIfString(quickStats, {});
+      program.quickStats = { ...program.quickStats, ...qsExtra };
+      if (
+        qsExtra.necessaryEquipment &&
+        (!program.equipment || !program.equipment.length)
+      ) {
+        program.equipment = Array.isArray(qsExtra.necessaryEquipment)
+          ? qsExtra.necessaryEquipment.map((x) => String(x).trim()).filter(Boolean)
+          : parseStringArray(qsExtra.necessaryEquipment);
+      }
+    }
+    program.markModified('quickStats');
 
     await program.save();
 
@@ -389,7 +471,7 @@ const deleteProgram = async (req, res) => {
   }
 };
 
-// 6. Get all programs for user (only non-deleted)
+// 6. Get all programs for user (published only)
 const getAllProgramsByUser = async (req, res) => {
   try {
     const token = req.token;
@@ -402,7 +484,7 @@ const getAllProgramsByUser = async (req, res) => {
       });
     }
 
-    const programs = await Program.find({ status: { $ne: 'Deleted' } })
+    const programs = await Program.find({ status: 'Active' })
       .sort({ createdAt: -1 })
       .lean();
 
@@ -421,7 +503,7 @@ const getAllProgramsByUser = async (req, res) => {
   }
 };
 
-// 7. Get single program for user by id (only non-deleted)
+// 7. Get single program for user by id (published only)
 const getProgramByUserAndId = async (req, res) => {
   try {
     const token = req.token;
@@ -437,7 +519,7 @@ const getProgramByUserAndId = async (req, res) => {
     const { id } = req.params;
     const program = await Program.findOne({
       _id: id,
-      status: { $ne: 'Deleted' },
+      status: 'Active',
     }).lean();
 
     if (!program) {

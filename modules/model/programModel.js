@@ -7,30 +7,50 @@ const programSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    /** Legacy / recommendation matching; optional on create if goalText is set */
     primaryGoal: {
       type: String,
-      required: true,
+      default: '',
       trim: true,
     },
     locationTag: {
       type: String,
-      required: true,
+      default: '',
       trim: true,
     },
     workoutSkillLevel: {
       type: String,
       required: true,
-      enum: ['Beginner', 'Intermediate', 'Advanced'],
+      enum: ['Beginner', 'Intermediate', 'Advanced', 'Any', 'Beg / Int'],
     },
     workoutPreference: {
       type: String,
-      required: true,
+      default: '',
       trim: true,
     },
+    /** Legacy string (e.g. "5"); kept for filters / older clients */
     frequency: {
       type: String,
-      required: true,
+      default: '',
       trim: true,
+    },
+    /** Quick stats (aligned with admin UI) */
+    durationWeeks: {
+      type: Number,
+      default: null,
+    },
+    daysPerWeek: {
+      type: Number,
+      default: null,
+    },
+    avgSessionMinutes: {
+      type: Number,
+      default: null,
+    },
+    /** One item per line in UI; mirrors quickStats.necessaryEquipment when saving */
+    equipment: {
+      type: [String],
+      default: [],
     },
     subHeader: {
       type: String,
@@ -42,6 +62,7 @@ const programSchema = new mongoose.Schema(
       default: '',
       trim: true,
     },
+    /** Multiline in UI → parsed to lines in API */
     whatsInside: {
       type: [String],
       default: [],
@@ -80,7 +101,7 @@ const programSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['Active', 'Draft', 'Deleted'],
+      enum: ['Active', 'Inactive', 'Draft', 'Deleted'],
       default: 'Active',
     },
   },
