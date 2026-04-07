@@ -70,6 +70,13 @@ const {
   deletePrivacyPolicy,
 } = require('../controller/privacyPolicyController');
 const {
+  addTermsCondition,
+  getAllTermsConditionAdmin,
+  getTermsConditionByIdAdmin,
+  updateTermsCondition,
+  deleteTermsCondition,
+} = require('../controller/termsConditionController');
+const {
   addAboutApp,
   getAllAboutAppAdmin,
   getAboutAppByIdAdmin,
@@ -170,6 +177,13 @@ router.get('/getAll-privacy-policy', upload.none(), verifyAccessToken, getAllPri
 router.get('/getprivacy-policy/:id', upload.none(), verifyAccessToken, getPrivacyPolicyByIdAdmin);
 router.post('/update-privacy-policy/:id', upload.none(), verifyAccessToken, updatePrivacyPolicy);
 router.post('/delete-privacy-policy/:id', upload.none(), verifyAccessToken, deletePrivacyPolicy);
+
+// Terms & Conditions (Admin CRUD; single-doc upsert on add)
+router.post('/terms-condition', upload.none(), verifyAccessToken, addTermsCondition);
+router.get('/getAll-terms-condition', upload.none(), verifyAccessToken, getAllTermsConditionAdmin);
+router.get('/getterms-condition/:id', upload.none(), verifyAccessToken, getTermsConditionByIdAdmin);
+router.post('/update-terms-condition/:id', upload.none(), verifyAccessToken, updateTermsCondition);
+router.post('/delete-terms-condition/:id', upload.none(), verifyAccessToken, deleteTermsCondition);
 
 // About App (Admin CRUD)
 router.post('/about-app', upload.none(), verifyAccessToken, addAboutApp);

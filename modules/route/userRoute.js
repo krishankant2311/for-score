@@ -37,6 +37,10 @@ const {
   getPrivacyPolicyByIdUser,
 } = require('../controller/privacyPolicyController');
 const {
+  getAllTermsConditionUser,
+  getTermsConditionByIdUser,
+} = require('../controller/termsConditionController');
+const {
   getAboutAppForUser,
 } = require('../controller/aboutAppController');
 const {
@@ -136,6 +140,10 @@ router.post('/delete-measurements/:id', upload.none(), verifyAccessToken, delete
 // Privacy Policy (User read-only)
 router.get('/get-all-privacy-policy-byuser', upload.none(), verifyAccessToken, getAllPrivacyPoliciesUser);
 router.get('/privacy-policy-by-user/:id', upload.none(), verifyAccessToken, getPrivacyPolicyByIdUser);
+
+// Terms & Conditions (User read-only)
+router.get('/terms-condition', upload.none(), verifyAccessToken, getAllTermsConditionUser);
+router.get('/terms-condition/:id', upload.none(), verifyAccessToken, getTermsConditionByIdUser);
 
 // About App / Social / Quotes (User read-only)
 router.get('/about-app', upload.none(), verifyAccessToken, getAboutAppForUser);
