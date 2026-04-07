@@ -96,6 +96,10 @@ const {
   getAllNutritionItemsForUser,
   getNutritionItemByIdForUser,
 } = require('../controller/nutritionItemController');
+const {
+  getFaqsForUser,
+  getFaqByIdForUser,
+} = require('../controller/faqController');
 
 router.post('/signup', upload.none(), signup);
 router.post('/login', upload.none(), login);
@@ -137,6 +141,10 @@ router.get('/privacy-policy-by-user/:id', upload.none(), verifyAccessToken, getP
 router.get('/about-app', upload.none(), verifyAccessToken, getAboutAppForUser);
 router.get('/social-media', upload.none(), verifyAccessToken, getSocialMediaForUser);
 router.get('/quotes', upload.none(), verifyAccessToken, getQuotesForUser);
+
+// FAQ (User read-only — Active only)
+router.get('/faq', upload.none(), verifyAccessToken, getFaqsForUser);
+router.get('/faq/:id', upload.none(), verifyAccessToken, getFaqByIdForUser);
 
 // Recovery Content (User read-only)
 router.get('/recovery-content', upload.none(), verifyAccessToken, getAllRecoveryContentForUser);

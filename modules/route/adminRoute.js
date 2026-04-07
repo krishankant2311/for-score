@@ -97,6 +97,13 @@ const {
   deleteFeedback,
 } = require('../controller/feedbackController');
 const {
+  addFaq,
+  getAllFaqsAdmin,
+  getFaqByIdAdmin,
+  updateFaq,
+  deleteFaq,
+} = require('../controller/faqController');
+const {
   getAppSettings,
   saveAppSettings,
 } = require('../controller/appSettingsController');
@@ -190,5 +197,12 @@ router.get('/get-all-feedback-byadmin', upload.none(), verifyAccessToken, getAll
 router.get('/get-feedback-byadmin/:id', upload.none(), verifyAccessToken, getFeedbackByIdAdmin);
 router.post('/update-feedback-status-byadmin/:id', upload.none(), verifyAccessToken, updateFeedbackStatus);
 router.post('/delete-feedback-byadmin/:id', upload.none(), verifyAccessToken, deleteFeedback);
+
+// FAQ (Admin CRUD)
+router.post('/add-faq', upload.none(), verifyAccessToken, addFaq);
+router.get('/get-all-faq', upload.none(), verifyAccessToken, getAllFaqsAdmin);
+router.get('/get-faq/:id', upload.none(), verifyAccessToken, getFaqByIdAdmin);
+router.post('/update-faq/:id', upload.none(), verifyAccessToken, updateFaq);
+router.post('/delete-faq/:id', upload.none(), verifyAccessToken, deleteFaq);
 
 module.exports = router;
