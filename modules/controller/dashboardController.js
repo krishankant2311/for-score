@@ -93,7 +93,11 @@ const getAdminDashboard = async (req, res) => {
     }
 
     const { from, to, key } = getTimeframeRange(req.query.timeframe || 'today'); // cards timeframe
-    const week = getThisWeekRange(); // fixed last-7-days for weekly widgets
+    const week = getThisWeekRange();
+    // Widgets (donuts/tables) should show data for selected timeframe.
+    // If timeframe=today, fallback to "this week" so charts don't look empty.
+    const widgetsFrom = key === 'today' ? week.from : from;
+    const widgetsTo = key === 'today' ? week.to : to;
     const now = new Date();
     const chartsFrom = startOfMonth(addMonths(now, -5)); // last 6 months window
     const chartsTo = addDays(startOfDay(now), 1);
@@ -147,7 +151,7 @@ const getAdminDashboard = async (req, res) => {
       MealLog.countDocuments({ status: 'Active', date: { $gte: from, $lt: to } }),
       // Donut - exercise types (this week) via lookup to Exercise by title==exerciseName then group by category
       WorkoutLog.aggregate([
-        { $match: { status: 'Active', date: { $gte: week.from, $lt: week.to } } },
+        { $match: { status: 'Active', date: { $gte: widgetsFrom, $lt: widgetsTo } } },
         {
           $lookup: {
             from: Exercise.collection.name,
@@ -169,13 +173,13 @@ const getAdminDashboard = async (req, res) => {
       ]),
       // Donut - nutrition logs by mealType (this week)
       MealLog.aggregate([
-        { $match: { status: 'Active', date: { $gte: week.from, $lt: week.to } } },
+        { $match: { status: 'Active', date: { $gte: widgetsFrom, $lt: widgetsTo } } },
         { $group: { _id: '$mealType', count: { $sum: 1 } } },
         { $sort: { count: -1 } },
       ]),
       // Top foods (this week): unwind items
       MealLog.aggregate([
-        { $match: { status: 'Active', date: { $gte: week.from, $lt: week.to } } },
+        { $match: { status: 'Active', date: { $gte: widgetsFrom, $lt: widgetsTo } } },
         { $unwind: '$items' },
         {
           $group: {
@@ -293,11 +297,17 @@ const getAdminDashboard = async (req, res) => {
             { label: 'Blocked', value: statusMap.Blocked },
             { label: 'Deleted', value: statusMap.Deleted },
           ],
-          exerciseTypesThisWeek: (exerciseTypesThisWeek || []).map((r) => ({
+          exerciseTypesThisWeek: (exerciseTypesThisWeek && exerciseTypesThisWeek.length
+            ? exerciseTypesThisWeek
+            : [{ _id: 'Other', count: 0 }]
+          ).map((r) => ({
             label: r._id || 'Other',
             value: r.count,
           })),
-          nutritionLogsThisWeek: (nutritionLogsByTypeThisWeek || []).map((r) => ({
+          nutritionLogsThisWeek: (nutritionLogsByTypeThisWeek && nutritionLogsByTypeThisWeek.length
+            ? nutritionLogsByTypeThisWeek
+            : [{ _id: 'Other', count: 0 }]
+          ).map((r) => ({
             label: r._id || 'Other',
             value: r.count,
           })),
