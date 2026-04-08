@@ -114,6 +114,9 @@ const getAdminDashboard = async (req, res) => {
       nutritionLogsToday,
       exerciseTypesThisWeek,
       nutritionLogsByTypeThisWeek,
+      nutritionLoggingSummary,
+      topExercisesThisWeek,
+      exerciseLibraryByCategory,
       topFoodsThisWeek,
       recentUsers,
       recentWorkouts,
@@ -176,6 +179,63 @@ const getAdminDashboard = async (req, res) => {
         { $match: { status: 'Active', date: { $gte: widgetsFrom, $lt: widgetsTo } } },
         { $group: { _id: '$mealType', count: { $sum: 1 } } },
         { $sort: { count: -1 } },
+      ]),
+      // Nutrition logging (On track / Partial / Missed) across Active users for the widget range
+      (async () => {
+        const totalActiveUsers = await User.countDocuments({ status: 'Active' });
+        const totalDays = Math.max(
+          1,
+          Math.round((widgetsTo.getTime() - widgetsFrom.getTime()) / (24 * 60 * 60 * 1000))
+        );
+
+        const perUserDay = await MealLog.aggregate([
+          { $match: { status: 'Active', date: { $gte: widgetsFrom, $lt: widgetsTo } } },
+          {
+            $group: {
+              _id: { userId: '$userId', day: '$date' },
+              mealTypes: { $addToSet: '$mealType' },
+            },
+          },
+          {
+            $project: {
+              mealCount: { $size: '$mealTypes' },
+            },
+          },
+        ]);
+
+        let onTrack = 0;
+        let partial = 0;
+        for (const r of perUserDay) {
+          const c = r.mealCount || 0;
+          if (c >= 3) onTrack += 1;
+          else if (c >= 1) partial += 1;
+        }
+        const logged = perUserDay.length;
+        const totalSlots = totalActiveUsers * totalDays;
+        const missed = Math.max(0, totalSlots - logged);
+
+        return {
+          totalActiveUsers,
+          totalDays,
+          onTrack,
+          partial,
+          missed,
+        };
+      })(),
+      // Top exercises (by workout logs) for widget range
+      WorkoutLog.aggregate([
+        { $match: { status: 'Active', date: { $gte: widgetsFrom, $lt: widgetsTo } } },
+        { $group: { _id: '$exerciseName', count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+        { $limit: 10 },
+        { $project: { _id: 0, name: '$_id', count: 1 } },
+      ]),
+      // Exercise library breakdown (admin uploaded exercises) by category
+      Exercise.aggregate([
+        { $match: { status: 'Active' } },
+        { $group: { _id: '$category', count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+        { $limit: 10 },
       ]),
       // Top foods (this week): unwind items
       MealLog.aggregate([
@@ -311,9 +371,19 @@ const getAdminDashboard = async (req, res) => {
             label: r._id || 'Other',
             value: r.count,
           })),
+          nutritionLoggingStatus: [
+            { label: 'On track', value: nutritionLoggingSummary?.onTrack || 0 },
+            { label: 'Partial', value: nutritionLoggingSummary?.partial || 0 },
+            { label: 'Missed', value: nutritionLoggingSummary?.missed || 0 },
+          ],
+          exerciseLibraryCategories: (exerciseLibraryByCategory && exerciseLibraryByCategory.length
+            ? exerciseLibraryByCategory
+            : [{ _id: 'Other', count: 0 }]
+          ).map((r) => ({ label: r._id || 'Other', value: r.count })),
         },
         tables: {
           topFoodsThisWeek: topFoodsThisWeek || [],
+          topExercisesThisWeek: topExercisesThisWeek || [],
         },
         recentActivity: {
           users: recentUsers || [],
