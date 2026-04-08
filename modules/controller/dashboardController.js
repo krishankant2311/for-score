@@ -2,6 +2,7 @@ const { Admin } = require('../model/adminModel');
 const User = require('../model/userModel');
 const WorkoutLog = require('../model/workoutLogModel');
 const MealLog = require('../model/mealLogModel');
+const Exercise = require('../model/exerciseModel');
 
 const getValidAdmin = async (token) => {
   const admin_id = token?._id;
@@ -21,6 +22,14 @@ const addDays = (d, days) => {
   const x = new Date(d);
   x.setDate(x.getDate() + days);
   return x;
+};
+
+const dayKey = (date) => {
+  const d = new Date(date);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
 };
 
 const monthKey = (date) => {
@@ -46,6 +55,19 @@ const getTimeframeRange = (timeframe) => {
   return { from: todayStart, to: tomorrowStart, key: 'today' };
 };
 
+const getThisWeekRange = () => {
+  const now = new Date();
+  const todayStart = startOfDay(now);
+  const from = addDays(todayStart, -6);
+  const to = addDays(todayStart, 1);
+  return { from, to };
+};
+
+const safePercent = (num, den) => {
+  if (!den) return 0;
+  return Math.round((num / den) * 100);
+};
+
 // GET /api/admin/dashboard?timeframe=today|7d|30d
 const getAdminDashboard = async (req, res) => {
   try {
@@ -58,9 +80,28 @@ const getAdminDashboard = async (req, res) => {
     }
 
     const { from, to, key } = getTimeframeRange(req.query.timeframe || 'today');
+    const week = getThisWeekRange();
 
-    const [totalUsers, usersCreatedSeriesRaw, workoutLogs, mealLogs] = await Promise.all([
+    const [
+      totalUsers,
+      totalUsersPrevRange,
+      usersCreatedSeriesRaw,
+      workoutLogs,
+      mealLogs,
+      userStatusCounts,
+      exercisesToday,
+      nutritionLogsToday,
+      exerciseTypesThisWeek,
+      nutritionLogsByTypeThisWeek,
+      topFoodsThisWeek,
+      recentUsers,
+      recentWorkouts,
+      recentMeals,
+    ] = await Promise.all([
+      // Cards
       User.countDocuments({}),
+      User.countDocuments({ createdAt: { $gte: addDays(from, -(to - from) / (24 * 3600 * 1000)), $lt: from } }).catch(() => 0),
+      // Charts - users per month (within timeframe)
       User.aggregate([
         { $match: { createdAt: { $gte: from, $lt: to } } },
         {
@@ -77,17 +118,80 @@ const getAdminDashboard = async (req, res) => {
       MealLog.find({ status: 'Active', date: { $gte: from, $lt: to } })
         .select('userId date')
         .lean(),
+      // Donut - user status
+      User.aggregate([
+        { $group: { _id: '$status', count: { $sum: 1 } } },
+      ]),
+      // Cards
+      WorkoutLog.countDocuments({ status: 'Active', date: { $gte: from, $lt: to } }),
+      MealLog.countDocuments({ status: 'Active', date: { $gte: from, $lt: to } }),
+      // Donut - exercise types (this week) via lookup to Exercise by title==exerciseName then group by category
+      WorkoutLog.aggregate([
+        { $match: { status: 'Active', date: { $gte: week.from, $lt: week.to } } },
+        {
+          $lookup: {
+            from: Exercise.collection.name,
+            localField: 'exerciseName',
+            foreignField: 'title',
+            as: 'exerciseDoc',
+          },
+        },
+        {
+          $addFields: {
+            category: {
+              $ifNull: [{ $arrayElemAt: ['$exerciseDoc.category', 0] }, 'Other'],
+            },
+          },
+        },
+        { $group: { _id: '$category', count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+        { $limit: 10 },
+      ]),
+      // Donut - nutrition logs by mealType (this week)
+      MealLog.aggregate([
+        { $match: { status: 'Active', date: { $gte: week.from, $lt: week.to } } },
+        { $group: { _id: '$mealType', count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+      ]),
+      // Top foods (this week): unwind items
+      MealLog.aggregate([
+        { $match: { status: 'Active', date: { $gte: week.from, $lt: week.to } } },
+        { $unwind: '$items' },
+        {
+          $group: {
+            _id: '$items.name',
+            count: { $sum: 1 },
+            calories: { $sum: '$items.calories' },
+          },
+        },
+        { $sort: { count: -1 } },
+        { $limit: 10 },
+        {
+          $project: {
+            _id: 0,
+            name: '$_id',
+            count: 1,
+            calories: 1,
+          },
+        },
+      ]),
+      // Recent activity
+      User.find({})
+        .select('name email createdAt status')
+        .sort({ createdAt: -1 })
+        .limit(10)
+        .lean(),
+      WorkoutLog.find({ status: 'Active' })
+        .select('userId exerciseName date createdAt')
+        .sort({ createdAt: -1 })
+        .limit(10)
+        .lean(),
+      MealLog.find({ status: 'Active' })
+        .select('userId mealType date createdAt')
+        .sort({ createdAt: -1 })
+        .limit(10)
+        .lean(),
     ]);
-
-    const exercisesToday = await WorkoutLog.countDocuments({
-      status: 'Active',
-      date: { $gte: from, $lt: to },
-    });
-
-    const nutritionLogsToday = await MealLog.countDocuments({
-      status: 'Active',
-      date: { $gte: from, $lt: to },
-    });
 
     // Active users in timeframe = distinct users with any workout or meal log
     const activeUserSet = new Set();
@@ -115,15 +219,8 @@ const getAdminDashboard = async (req, res) => {
       .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
       .map(([month, set]) => ({ month, count: set.size }));
 
-    // Nutrition logs per day (for last 7 days chart feel)
+    // Nutrition logs per day (bar chart)
     const dayBuckets = new Map(); // YYYY-MM-DD -> count
-    const dayKey = (date) => {
-      const d = new Date(date);
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, '0');
-      const dd = String(d.getDate()).padStart(2, '0');
-      return `${y}-${m}-${dd}`;
-    };
     for (const ml of mealLogs) {
       const dk = dayKey(ml.date);
       dayBuckets.set(dk, (dayBuckets.get(dk) || 0) + 1);
@@ -131,6 +228,18 @@ const getAdminDashboard = async (req, res) => {
     const nutritionByDay = Array.from(dayBuckets.entries())
       .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
       .map(([day, count]) => ({ day, count }));
+
+    const statusMap = { Active: 0, Blocked: 0, Deleted: 0 };
+    for (const r of userStatusCounts || []) {
+      const k = String(r._id || '');
+      if (k in statusMap) statusMap[k] = r.count;
+    }
+
+    const usersDelta = totalUsersPrevRange ? totalUsers - totalUsersPrevRange : null;
+    const usersDeltaPercent =
+      totalUsersPrevRange && totalUsersPrevRange > 0
+        ? safePercent(usersDelta, totalUsersPrevRange)
+        : null;
 
     return res.json({
       success: true,
@@ -143,11 +252,36 @@ const getAdminDashboard = async (req, res) => {
           activeToday,
           exercisesToday,
           nutritionLogsToday,
+          usersDelta,
+          usersDeltaPercent,
         },
         charts: {
           usersCreatedByMonth: usersCreatedSeries,
           monthlyActiveUsers: monthlyActiveSeries,
           nutritionLogsByDay: nutritionByDay,
+        },
+        donuts: {
+          userStatus: [
+            { label: 'Active', value: statusMap.Active },
+            { label: 'Blocked', value: statusMap.Blocked },
+            { label: 'Deleted', value: statusMap.Deleted },
+          ],
+          exerciseTypesThisWeek: (exerciseTypesThisWeek || []).map((r) => ({
+            label: r._id || 'Other',
+            value: r.count,
+          })),
+          nutritionLogsThisWeek: (nutritionLogsByTypeThisWeek || []).map((r) => ({
+            label: r._id || 'Other',
+            value: r.count,
+          })),
+        },
+        tables: {
+          topFoodsThisWeek: topFoodsThisWeek || [],
+        },
+        recentActivity: {
+          users: recentUsers || [],
+          workouts: recentWorkouts || [],
+          meals: recentMeals || [],
         },
       },
     });
