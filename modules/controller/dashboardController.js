@@ -68,6 +68,19 @@ const safePercent = (num, den) => {
   return Math.round((num / den) * 100);
 };
 
+const startOfMonth = (d) => {
+  const x = new Date(d);
+  x.setDate(1);
+  x.setHours(0, 0, 0, 0);
+  return x;
+};
+
+const addMonths = (d, months) => {
+  const x = new Date(d);
+  x.setMonth(x.getMonth() + months);
+  return x;
+};
+
 // GET /api/admin/dashboard?timeframe=today|7d|30d
 const getAdminDashboard = async (req, res) => {
   try {
@@ -79,8 +92,12 @@ const getAdminDashboard = async (req, res) => {
       });
     }
 
-    const { from, to, key } = getTimeframeRange(req.query.timeframe || 'today');
-    const week = getThisWeekRange();
+    const { from, to, key } = getTimeframeRange(req.query.timeframe || 'today'); // cards timeframe
+    const week = getThisWeekRange(); // fixed last-7-days for weekly widgets
+    const now = new Date();
+    const chartsFrom = startOfMonth(addMonths(now, -5)); // last 6 months window
+    const chartsTo = addDays(startOfDay(now), 1);
+    const last7From = addDays(startOfDay(now), -6);
 
     const [
       totalUsers,
@@ -97,13 +114,15 @@ const getAdminDashboard = async (req, res) => {
       recentUsers,
       recentWorkouts,
       recentMeals,
+      activeUsers,
     ] = await Promise.all([
       // Cards
       User.countDocuments({}),
+      // keep old delta calculation placeholder; will refine below
       User.countDocuments({ createdAt: { $gte: addDays(from, -(to - from) / (24 * 3600 * 1000)), $lt: from } }).catch(() => 0),
-      // Charts - users per month (within timeframe)
+      // Charts - users created per month (last 6 months)
       User.aggregate([
-        { $match: { createdAt: { $gte: from, $lt: to } } },
+        { $match: { createdAt: { $gte: chartsFrom, $lt: chartsTo } } },
         {
           $group: {
             _id: { y: { $year: '$createdAt' }, m: { $month: '$createdAt' } },
@@ -112,10 +131,11 @@ const getAdminDashboard = async (req, res) => {
         },
         { $sort: { '_id.y': 1, '_id.m': 1 } },
       ]),
-      WorkoutLog.find({ status: 'Active', date: { $gte: from, $lt: to } })
+      // For charts we want broader window, not only cards timeframe
+      WorkoutLog.find({ status: 'Active', date: { $gte: chartsFrom, $lt: chartsTo } })
         .select('userId date')
         .lean(),
-      MealLog.find({ status: 'Active', date: { $gte: from, $lt: to } })
+      MealLog.find({ status: 'Active', date: { $gte: chartsFrom, $lt: chartsTo } })
         .select('userId date')
         .lean(),
       // Donut - user status
@@ -191,13 +211,12 @@ const getAdminDashboard = async (req, res) => {
         .sort({ createdAt: -1 })
         .limit(10)
         .lean(),
+      // Cards
+      User.countDocuments({ status: 'Active' }),
     ]);
 
-    // Active users in timeframe = distinct users with any workout or meal log
-    const activeUserSet = new Set();
-    for (const w of workoutLogs) activeUserSet.add(String(w.userId));
-    for (const m of mealLogs) activeUserSet.add(String(m.userId));
-    const activeToday = activeUserSet.size;
+    // UI "Active Today" should reflect active accounts (not log activity)
+    const activeToday = activeUsers;
 
     // Users per month series (within timeframe)
     const usersCreatedSeries = usersCreatedSeriesRaw.map((r) => {
@@ -219,15 +238,18 @@ const getAdminDashboard = async (req, res) => {
       .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
       .map(([month, set]) => ({ month, count: set.size }));
 
-    // Nutrition logs per day (bar chart)
+    // Nutrition logs per day (bar chart, always last 7 days incl 0)
     const dayBuckets = new Map(); // YYYY-MM-DD -> count
     for (const ml of mealLogs) {
       const dk = dayKey(ml.date);
       dayBuckets.set(dk, (dayBuckets.get(dk) || 0) + 1);
     }
-    const nutritionByDay = Array.from(dayBuckets.entries())
-      .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
-      .map(([day, count]) => ({ day, count }));
+    const nutritionByDay = [];
+    for (let i = 0; i < 7; i++) {
+      const d = addDays(last7From, i);
+      const kDay = dayKey(d);
+      nutritionByDay.push({ day: kDay, count: dayBuckets.get(kDay) || 0 });
+    }
 
     const statusMap = { Active: 0, Blocked: 0, Deleted: 0 };
     for (const r of userStatusCounts || []) {
@@ -235,11 +257,16 @@ const getAdminDashboard = async (req, res) => {
       if (k in statusMap) statusMap[k] = r.count;
     }
 
-    const usersDelta = totalUsersPrevRange ? totalUsers - totalUsersPrevRange : null;
-    const usersDeltaPercent =
-      totalUsersPrevRange && totalUsersPrevRange > 0
-        ? safePercent(usersDelta, totalUsersPrevRange)
-        : null;
+    // Users delta: last 30 days signups vs previous 30 days
+    const prev30From = addDays(startOfDay(now), -59);
+    const prev30To = addDays(startOfDay(now), -29);
+    const this30From = addDays(startOfDay(now), -29);
+    const [this30, prev30] = await Promise.all([
+      User.countDocuments({ createdAt: { $gte: this30From, $lt: chartsTo } }),
+      User.countDocuments({ createdAt: { $gte: prev30From, $lt: prev30To } }),
+    ]);
+    const usersDelta = prev30 ? this30 - prev30 : null;
+    const usersDeltaPercent = prev30 ? safePercent(usersDelta, prev30) : null;
 
     return res.json({
       success: true,
