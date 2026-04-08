@@ -111,9 +111,14 @@ const {
   deleteFaq,
 } = require('../controller/faqController');
 const {
+  sendNotificationByAdmin,
+  getAllNotificationsAdmin,
+} = require('../controller/notificationController');
+const {
   getAppSettings,
   saveAppSettings,
 } = require('../controller/appSettingsController');
+const { getAdminDashboard } = require('../controller/dashboardController');
 
 router.post('/login', upload.none(), adminLogin);
 router.post('/logout', upload.none(), verifyAccessToken, logoutAdmin);
@@ -128,6 +133,7 @@ router.get('/get-all-users', upload.none(), verifyAccessToken, getAllUsers);
 router.get('/get-all-active-users', upload.none(), verifyAccessToken, getAllActiveUsersByAdmin);
 router.get('/get-all-blocked-users', upload.none(), verifyAccessToken, getAllBlockedUsersByAdmin);
 router.get('/get-user-stats', upload.none(), verifyAccessToken, getUserStats);
+router.get('/dashboard', upload.none(), verifyAccessToken, getAdminDashboard);
 router.get('/get-users/:id', upload.none(), verifyAccessToken, getUserByIdByAdmin);
 router.get('/get-active-users/:id', upload.none(), verifyAccessToken, getActiveUserByIdByAdmin);
 router.get('/users/blocked/:id', upload.none(), verifyAccessToken, getBlockedUserByIdByAdmin);
@@ -218,5 +224,9 @@ router.get('/get-all-faq', upload.none(), verifyAccessToken, getAllFaqsAdmin);
 router.get('/get-faq/:id', upload.none(), verifyAccessToken, getFaqByIdAdmin);
 router.post('/update-faq/:id', upload.none(), verifyAccessToken, updateFaq);
 router.post('/delete-faq/:id', upload.none(), verifyAccessToken, deleteFaq);
+
+// Notifications (Admin)
+router.post('/send-notification', upload.none(), verifyAccessToken, sendNotificationByAdmin);
+router.get('/get-all-notifications', upload.none(), verifyAccessToken, getAllNotificationsAdmin);
 
 module.exports = router;

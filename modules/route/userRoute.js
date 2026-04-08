@@ -104,6 +104,10 @@ const {
   getFaqsForUser,
   getFaqByIdForUser,
 } = require('../controller/faqController');
+const {
+  getNotificationsForUser,
+  markNotificationRead,
+} = require('../controller/notificationController');
 
 router.post('/signup', upload.none(), signup);
 router.post('/login', upload.none(), login);
@@ -153,6 +157,10 @@ router.get('/quotes', upload.none(), verifyAccessToken, getQuotesForUser);
 // FAQ (User read-only — Active only)
 router.get('/faq', upload.none(), verifyAccessToken, getFaqsForUser);
 router.get('/faq/:id', upload.none(), verifyAccessToken, getFaqByIdForUser);
+
+// Notifications (User)
+router.get('/notifications', upload.none(), verifyAccessToken, getNotificationsForUser);
+router.post('/notifications/:id/read', upload.none(), verifyAccessToken, markNotificationRead);
 
 // Recovery Content (User read-only)
 router.get('/recovery-content', upload.none(), verifyAccessToken, getAllRecoveryContentForUser);
