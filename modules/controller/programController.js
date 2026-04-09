@@ -43,9 +43,47 @@ const parseOptionalNumber = (value) => {
  * - recovery step -> `recoveryProtocol` (also accept `recovery`)
  */
 const pickProgramStepPayload = (body) => {
-  const weekGrid = body.weekGrid ?? body.logicGrid ?? body.schedule ?? null;
-  const exerciseLibrary = body.exerciseLibrary ?? body.library ?? body.workouts ?? null;
-  const recoveryProtocol = body.recoveryProtocol ?? body.recovery ?? null;
+  const isBlankString = (v) => typeof v === 'string' && !v.trim();
+  const normalizeMaybe = (v) => (isBlankString(v) ? null : v);
+
+  const weekGrid = normalizeMaybe(
+    body.weekGrid ??
+      body.week_grid ??
+      body.logicGrid ??
+      body.logic_grid ??
+      body.schedule ??
+      body.scheduleGrid ??
+      body.programSchedule ??
+      body.page2 ??
+      body.step2 ??
+      null
+  );
+  const exerciseLibrary = normalizeMaybe(
+    body.exerciseLibrary ??
+      body.exercise_library ??
+      body.library ??
+      body.workouts ??
+      body.workoutLibrary ??
+      body.workoutsLibrary ??
+      body.page3 ??
+      body.step3 ??
+      null
+  );
+  const recoveryProtocol = normalizeMaybe(
+    body.recoveryProtocol ??
+      body.recovery_protocol ??
+      body.recovery ??
+      body.recoveryStep ??
+      body.recoveryPlan ??
+      body.recovery_plan ??
+      body.recoveryGrid ??
+      body.recovery_grid ??
+      body.page4 ??
+      body.step4 ??
+      body.fourthPage ??
+      body.fourth_page ??
+      null
+  );
   return { weekGrid, exerciseLibrary, recoveryProtocol };
 };
 
