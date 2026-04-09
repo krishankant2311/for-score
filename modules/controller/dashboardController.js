@@ -89,12 +89,25 @@ const getAdminDashboard = async (req, res) => {
 
     const { timeframe, from, to } = resolveRange(mappedTf);
 
-    // Charts fixed window (like frontend expects): last 7 days for nutrition chart, last 6 months for users chart
+    // Charts: users chart fixed 6 months; nutrition chart follows timeframe
     const now = new Date();
     const chartsUsersFrom = startOfMonthUTC(addMonthsUTC(now, -5));
     const chartsUsersTo = addDaysUTC(startOfDayUTC(now), 1);
     const nutritionChartEnd = to || chartsUsersTo;
-    const nutritionChartStart = addDaysUTC(nutritionChartEnd, -7);
+    const nutritionDays =
+      timeframe === 'last_3_months'
+        ? Math.min(
+            92,
+            Math.max(
+              7,
+              Math.round((nutritionChartEnd.getTime() - from.getTime()) / (24 * 60 * 60 * 1000))
+            )
+          )
+        : 7;
+    const nutritionChartStart =
+      timeframe === 'last_3_months' && from
+        ? from
+        : addDaysUTC(nutritionChartEnd, -nutritionDays);
 
     // Cards
     const totalUsersPromise = User.countDocuments({});
@@ -189,7 +202,7 @@ const getAdminDashboard = async (req, res) => {
       .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
       .map(([month, set]) => ({ month, count: set.size }));
 
-    // Nutrition logs by day (last 7 days, fill zeros)
+    // Nutrition logs by day (timeframe-based, fill zeros)
     const nutritionRaw = await MealLog.aggregate([
       { $match: { status: 'Active', ...dateMatch('date', nutritionChartStart, nutritionChartEnd) } },
       {
@@ -205,7 +218,7 @@ const getAdminDashboard = async (req, res) => {
       const d = new Date(Date.UTC(r._id.y, r._id.m - 1, r._id.d));
       nutritionMap.set(toYMD(d), r.count);
     }
-    const nutritionLogsByDay = Array.from({ length: 7 }).map((_, i) => {
+    const nutritionLogsByDay = Array.from({ length: nutritionDays }).map((_, i) => {
       const d = addDaysUTC(nutritionChartStart, i);
       const keyDay = toYMD(d);
       return { day: keyDay, count: nutritionMap.get(keyDay) ?? 0 };
@@ -305,7 +318,7 @@ const getAdminDashboard = async (req, res) => {
       { $project: { _id: 0, foodName: '$_id', calories: 1, count: 1 } },
     ]);
 
-    const topExercisesThisWeek = await WorkoutLog.aggregate([
+    const topExercisesFromLogs = await WorkoutLog.aggregate([
       ...(from && to
         ? [{ $match: { status: 'Active', ...dateMatch('date', from, to) } }]
         : [{ $match: { status: 'Active' } }]),
@@ -314,6 +327,14 @@ const getAdminDashboard = async (req, res) => {
       { $limit: 10 },
       { $project: { _id: 0, exerciseName: '$_id', count: 1 } },
     ]);
+    const topExercisesThisWeek =
+      topExercisesFromLogs && topExercisesFromLogs.length
+        ? topExercisesFromLogs
+        : (await Exercise.find({ status: 'Active' })
+            .select('title')
+            .sort({ createdAt: -1 })
+            .limit(10)
+            .lean()).map((e) => ({ exerciseName: e.title || 'Exercise', count: 0 }));
 
     // ---------- Recent activity ----------
     const [recentUsers, recentWorkouts, recentMeals] = await Promise.all([
