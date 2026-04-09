@@ -121,6 +121,11 @@ const getAdminDashboard = async (req, res) => {
       status: 'Active',
       ...dateMatch('date', from, to),
     });
+    const totalExercisesPromise = Exercise.countDocuments({ status: 'Active' });
+    const exercisesAddedInRangePromise = Exercise.countDocuments({
+      status: 'Active',
+      ...dateMatch('createdAt', from, to),
+    });
     const nutritionLogsTodayPromise = MealLog.countDocuments({
       status: 'Active',
       ...dateMatch('date', from, to),
@@ -151,6 +156,8 @@ const getAdminDashboard = async (req, res) => {
       totalActiveUsers,
       activeToday,
       exercisesToday,
+      totalExercises,
+      exercisesAddedInRange,
       nutritionLogsToday,
       totalNutritionItems,
       nutritionItemsAddedInRange,
@@ -160,10 +167,16 @@ const getAdminDashboard = async (req, res) => {
         totalActiveUsersPromise,
         activeTodayPromise,
         exercisesTodayPromise,
+        totalExercisesPromise,
+        exercisesAddedInRangePromise,
         nutritionLogsTodayPromise,
         totalNutritionItemsPromise,
         nutritionItemsAddedInRangePromise,
       ]);
+
+    // If there is no WorkoutLog data, show library additions in the same range on the card
+    const exercisesTodayFinal =
+      exercisesToday && exercisesToday > 0 ? exercisesToday : exercisesAddedInRange;
 
     // If there is no MealLog data, show catalog additions in the same range on the card
     const nutritionLogsTodayFinal =
@@ -291,6 +304,15 @@ const getAdminDashboard = async (req, res) => {
       { $project: { _id: 0, label: '$_id', value: 1 } },
       { $sort: { value: -1 } },
     ]);
+    const exerciseTypesThisWeekFinal =
+      exerciseTypesThisWeek && exerciseTypesThisWeek.length
+        ? exerciseTypesThisWeek
+        : await Exercise.aggregate([
+            { $match: { status: 'Active', ...dateMatch('createdAt', from, to) } },
+            { $group: { _id: { $ifNull: ['$category', 'Other'] }, value: { $sum: 1 } } },
+            { $project: { _id: 0, label: '$_id', value: 1 } },
+            { $sort: { value: -1 } },
+          ]);
 
     const nutritionLogsThisWeek = await MealLog.aggregate([
       ...(from && to
@@ -432,7 +454,9 @@ const getAdminDashboard = async (req, res) => {
           totalUsers,
           totalActiveUsers,
           activeToday,
-          exercisesToday,
+          exercisesToday: exercisesTodayFinal,
+          totalExercises,
+          exercisesAddedInRange,
           nutritionLogsToday: nutritionLogsTodayFinal,
           totalNutritionItems,
           nutritionItemsAddedInRange,
@@ -452,8 +476,8 @@ const getAdminDashboard = async (req, res) => {
                 { label: 'Blocked', value: 0 },
                 { label: 'Deleted', value: 0 },
               ],
-          exerciseTypesThisWeek: exerciseTypesThisWeek.length
-            ? exerciseTypesThisWeek
+          exerciseTypesThisWeek: exerciseTypesThisWeekFinal.length
+            ? exerciseTypesThisWeekFinal
             : [{ label: 'Other', value: 0 }],
           nutritionLogsThisWeek: nutritionLogsThisWeekFinal.length
             ? nutritionLogsThisWeekFinal
