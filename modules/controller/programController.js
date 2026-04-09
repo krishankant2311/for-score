@@ -36,6 +36,19 @@ const parseOptionalNumber = (value) => {
   return Number.isFinite(n) ? n : null;
 };
 
+/**
+ * UI step aliases:
+ * - schedule/logic grid -> `weekGrid` (also accept `logicGrid`)
+ * - workouts library -> `exerciseLibrary` (also accept `library`)
+ * - recovery step -> `recoveryProtocol` (also accept `recovery`)
+ */
+const pickProgramStepPayload = (body) => {
+  const weekGrid = body.weekGrid ?? body.logicGrid ?? body.schedule ?? null;
+  const exerciseLibrary = body.exerciseLibrary ?? body.library ?? body.workouts ?? null;
+  const recoveryProtocol = body.recoveryProtocol ?? body.recovery ?? null;
+  return { weekGrid, exerciseLibrary, recoveryProtocol };
+};
+
 /** Keeps `quickStats` in sync with top-level fields for mobile badges / legacy clients */
 const syncQuickStatsFromProgramFields = (p) => {
   const equipment = Array.isArray(p.equipment) ? p.equipment : [];
@@ -87,10 +100,8 @@ const addProgram = async (req, res) => {
       avgSessionMinutes,
       equipment,
       quickStats,
-      weekGrid,
-      exerciseLibrary,
-      recoveryProtocol,
     } = req.body;
+    const { weekGrid, exerciseLibrary, recoveryProtocol } = pickProgramStepPayload(req.body);
 
     if (
       !programName?.trim() ||
@@ -361,10 +372,8 @@ const updateProgram = async (req, res) => {
       avgSessionMinutes,
       equipment,
       quickStats,
-      weekGrid,
-      exerciseLibrary,
-      recoveryProtocol,
     } = req.body;
+    const { weekGrid, exerciseLibrary, recoveryProtocol } = pickProgramStepPayload(req.body);
 
     const program = await Program.findById(id);
     if (!program) {
