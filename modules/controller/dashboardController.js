@@ -219,11 +219,27 @@ const getAdminDashboard = async (req, res) => {
       .map(([month, set]) => ({ month, count: set.size }));
 
     // Nutrition logs by day (timeframe-based, fill zeros)
-    const nutritionRaw = await MealLog.aggregate([
-      { $match: { status: 'Active', ...dateMatch('date', nutritionChartStart, nutritionChartEnd) } },
+    // Prefer MealLog (user logging). If there are no meal logs in range, fallback to NutritionItem (catalog added).
+    const mealLogsInRange = await MealLog.countDocuments({
+      status: 'Active',
+      ...dateMatch('date', nutritionChartStart, nutritionChartEnd),
+    });
+    const nutritionRaw = await (mealLogsInRange > 0 ? MealLog : NutritionItem).aggregate([
+      {
+        $match: {
+          status: 'Active',
+          ...(mealLogsInRange > 0
+            ? dateMatch('date', nutritionChartStart, nutritionChartEnd)
+            : dateMatch('createdAt', nutritionChartStart, nutritionChartEnd)),
+        },
+      },
       {
         $group: {
-          _id: { y: { $year: '$date' }, m: { $month: '$date' }, d: { $dayOfMonth: '$date' } },
+          _id: {
+            y: { $year: mealLogsInRange > 0 ? '$date' : '$createdAt' },
+            m: { $month: mealLogsInRange > 0 ? '$date' : '$createdAt' },
+            d: { $dayOfMonth: mealLogsInRange > 0 ? '$date' : '$createdAt' },
+          },
           count: { $sum: 1 },
         },
       },
@@ -278,6 +294,15 @@ const getAdminDashboard = async (req, res) => {
       { $project: { _id: 0, label: '$_id', value: 1 } },
       { $sort: { value: -1 } },
     ]);
+    const nutritionLogsThisWeekFinal =
+      nutritionLogsThisWeek && nutritionLogsThisWeek.length
+        ? nutritionLogsThisWeek
+        : await NutritionItem.aggregate([
+            { $match: { status: 'Active', ...dateMatch('createdAt', from, to) } },
+            { $group: { _id: { $ifNull: ['$category', 'Other'] }, value: { $sum: 1 } } },
+            { $project: { _id: 0, label: '$_id', value: 1 } },
+            { $sort: { value: -1 } },
+          ]);
 
     // Nutrition logging status (computed): per active user per day in range
     const nutritionLoggingStatus = await (async () => {
@@ -413,8 +438,8 @@ const getAdminDashboard = async (req, res) => {
           exerciseTypesThisWeek: exerciseTypesThisWeek.length
             ? exerciseTypesThisWeek
             : [{ label: 'Other', value: 0 }],
-          nutritionLogsThisWeek: nutritionLogsThisWeek.length
-            ? nutritionLogsThisWeek
+          nutritionLogsThisWeek: nutritionLogsThisWeekFinal.length
+            ? nutritionLogsThisWeekFinal
             : [{ label: 'Other', value: 0 }],
           nutritionLoggingStatus,
           exerciseLibraryCategories,
