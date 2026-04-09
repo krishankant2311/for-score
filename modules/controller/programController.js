@@ -36,6 +36,12 @@ const parseOptionalNumber = (value) => {
   return Number.isFinite(n) ? n : null;
 };
 
+const isNonEmptyObject = (value) => {
+  if (!value || typeof value !== 'object') return false;
+  if (Array.isArray(value)) return value.length > 0;
+  return Object.keys(value).length > 0;
+};
+
 /**
  * UI step aliases:
  * - schedule/logic grid -> `weekGrid` (also accept `logicGrid`)
@@ -154,6 +160,22 @@ const addProgram = async (req, res) => {
       });
     }
 
+    // Save ONLY when all 4 pages are provided (page2/page3/page4 must be present).
+    const weekGridParsed = parseJsonIfString(weekGrid, null);
+    const exerciseLibraryParsed = parseJsonIfString(exerciseLibrary, null);
+    const recoveryProtocolParsed = parseJsonIfString(recoveryProtocol, null);
+    if (
+      !isNonEmptyObject(weekGridParsed) ||
+      !isNonEmptyObject(exerciseLibraryParsed) ||
+      !isNonEmptyObject(recoveryProtocolParsed)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'Please submit all program pages (weekGrid/exerciseLibrary/recoveryProtocol) before saving.',
+      });
+    }
+
     const skillAllowed = ['Beginner', 'Intermediate', 'Advanced', 'Any', 'Beg / Int'];
     if (!skillAllowed.includes(workoutSkillLevel)) {
       return res.status(400).json({
@@ -192,9 +214,9 @@ const addProgram = async (req, res) => {
       whatsInside: parseStringArray(whatsInside),
       isThisForYou: parseStringArray(isThisForYou),
       goalText: goalTrim,
-      weekGrid: parseJsonIfString(weekGrid, {}),
-      exerciseLibrary: parseJsonIfString(exerciseLibrary, {}),
-      recoveryProtocol: parseJsonIfString(recoveryProtocol, {}),
+      weekGrid: weekGridParsed,
+      exerciseLibrary: exerciseLibraryParsed,
+      recoveryProtocol: recoveryProtocolParsed,
       status: statusVal,
     };
     syncQuickStatsFromProgramFields(doc);
@@ -446,11 +468,30 @@ const updateProgram = async (req, res) => {
       program.avgSessionMinutes = parseOptionalNumber(avgSessionMinutes);
     if (equipment != null)
       program.equipment = parseStringArray(equipment);
-    if (weekGrid != null) program.weekGrid = parseJsonIfString(weekGrid, {});
-    if (exerciseLibrary != null)
-      program.exerciseLibrary = parseJsonIfString(exerciseLibrary, {});
-    if (recoveryProtocol != null)
-      program.recoveryProtocol = parseJsonIfString(recoveryProtocol, {});
+
+    // If any step-payload is provided, enforce that ALL 3 step-payloads are provided together.
+    const anyStepProvided = weekGrid != null || exerciseLibrary != null || recoveryProtocol != null;
+    if (anyStepProvided) {
+      const weekGridParsed = parseJsonIfString(weekGrid, null);
+      const exerciseLibraryParsed = parseJsonIfString(exerciseLibrary, null);
+      const recoveryProtocolParsed = parseJsonIfString(recoveryProtocol, null);
+
+      if (
+        !isNonEmptyObject(weekGridParsed) ||
+        !isNonEmptyObject(exerciseLibraryParsed) ||
+        !isNonEmptyObject(recoveryProtocolParsed)
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            'Please submit all program pages (weekGrid/exerciseLibrary/recoveryProtocol) together when updating steps.',
+        });
+      }
+
+      program.weekGrid = weekGridParsed;
+      program.exerciseLibrary = exerciseLibraryParsed;
+      program.recoveryProtocol = recoveryProtocolParsed;
+    }
     if (status && ['Active', 'Inactive', 'Draft', 'Deleted'].includes(status))
       program.status = status;
 
