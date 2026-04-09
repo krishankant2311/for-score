@@ -3,6 +3,7 @@ const User = require('../model/userModel');
 const WorkoutLog = require('../model/workoutLogModel');
 const MealLog = require('../model/mealLogModel');
 const Exercise = require('../model/exerciseModel');
+const NutritionItem = require('../model/nutritionItemModel');
 
 const getValidAdmin = async (token) => {
   const admin_id = token?._id;
@@ -124,6 +125,11 @@ const getAdminDashboard = async (req, res) => {
       status: 'Active',
       ...dateMatch('date', from, to),
     });
+    const totalNutritionItemsPromise = NutritionItem.countDocuments({ status: 'Active' });
+    const nutritionItemsAddedInRangePromise = NutritionItem.countDocuments({
+      status: 'Active',
+      ...dateMatch('createdAt', from, to),
+    });
 
     // Users delta (previous period) based on createdAt
     let usersDelta = null;
@@ -140,13 +146,23 @@ const getAdminDashboard = async (req, res) => {
       usersDeltaPercent = prevUsers > 0 ? safePercent(usersDelta, prevUsers) : null;
     }
 
-    const [totalUsers, totalActiveUsers, activeToday, exercisesToday, nutritionLogsToday] =
+    const [
+      totalUsers,
+      totalActiveUsers,
+      activeToday,
+      exercisesToday,
+      nutritionLogsToday,
+      totalNutritionItems,
+      nutritionItemsAddedInRange,
+    ] =
       await Promise.all([
         totalUsersPromise,
         totalActiveUsersPromise,
         activeTodayPromise,
         exercisesTodayPromise,
         nutritionLogsTodayPromise,
+        totalNutritionItemsPromise,
+        nutritionItemsAddedInRangePromise,
       ]);
 
     // ---------- Charts ----------
@@ -376,6 +392,8 @@ const getAdminDashboard = async (req, res) => {
           activeToday,
           exercisesToday,
           nutritionLogsToday,
+          totalNutritionItems,
+          nutritionItemsAddedInRange,
           usersDelta,
           usersDeltaPercent,
         },
