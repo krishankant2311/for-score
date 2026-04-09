@@ -98,6 +98,7 @@ const getAdminDashboard = async (req, res) => {
 
     // Cards
     const totalUsersPromise = User.countDocuments({});
+    const totalActiveUsersPromise = User.countDocuments({ status: 'Active' });
     const activeTodayPromise = User.countDocuments({
       ...dateMatch('createdAt', from, to),
       status: 'Active',
@@ -126,12 +127,14 @@ const getAdminDashboard = async (req, res) => {
       usersDeltaPercent = prevUsers > 0 ? safePercent(usersDelta, prevUsers) : null;
     }
 
-    const [totalUsers, activeToday, exercisesToday, nutritionLogsToday] = await Promise.all([
-      totalUsersPromise,
-      activeTodayPromise,
-      exercisesTodayPromise,
-      nutritionLogsTodayPromise,
-    ]);
+    const [totalUsers, totalActiveUsers, activeToday, exercisesToday, nutritionLogsToday] =
+      await Promise.all([
+        totalUsersPromise,
+        totalActiveUsersPromise,
+        activeTodayPromise,
+        exercisesTodayPromise,
+        nutritionLogsTodayPromise,
+      ]);
 
     // ---------- Charts ----------
     const usersCreatedByMonth = await User.aggregate([
@@ -348,6 +351,7 @@ const getAdminDashboard = async (req, res) => {
         },
         cards: {
           totalUsers,
+          totalActiveUsers,
           activeToday,
           exercisesToday,
           nutritionLogsToday,
