@@ -165,6 +165,12 @@ const getAdminDashboard = async (req, res) => {
         nutritionItemsAddedInRangePromise,
       ]);
 
+    // If there is no MealLog data, show catalog additions in the same range on the card
+    const nutritionLogsTodayFinal =
+      nutritionLogsToday && nutritionLogsToday > 0
+        ? nutritionLogsToday
+        : nutritionItemsAddedInRange;
+
     // ---------- Charts ----------
     const usersCreatedByMonth = await User.aggregate([
       { $match: { createdAt: { $gte: chartsUsersFrom, $lt: chartsUsersTo } } },
@@ -313,6 +319,17 @@ const getAdminDashboard = async (req, res) => {
           { label: 'Missed', value: 0 },
         ];
       }
+      const hasMealLogs = await MealLog.exists({
+        status: 'Active',
+        ...dateMatch('date', from, to),
+      });
+      if (!hasMealLogs) {
+        return [
+          { label: 'On track', value: 0 },
+          { label: 'Partial', value: 0 },
+          { label: 'Missed', value: 0 },
+        ];
+      }
       const totalActiveUsers = await User.countDocuments({ status: 'Active' });
       const totalDays = Math.max(
         1,
@@ -416,7 +433,7 @@ const getAdminDashboard = async (req, res) => {
           totalActiveUsers,
           activeToday,
           exercisesToday,
-          nutritionLogsToday,
+          nutritionLogsToday: nutritionLogsTodayFinal,
           totalNutritionItems,
           nutritionItemsAddedInRange,
           usersDelta,
