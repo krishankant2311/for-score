@@ -38,12 +38,11 @@ const userSchema = new mongoose.Schema(
     },
     workoutSkillLevel: {
       type: String,
-      enum: ['BEGINNER', 'INTERMEDIATE', 'ADVANCED', 'NULL'],
-      default: 'NULL',
+      default: "",
     },
     workoutPreferences: {
       type: String,
-      default: 'NULL',
+      default: "",
       // comma-separated for multiple e.g. "CROSSFIT,HIIT,YOGA"
     },
     workoutDuration: {
@@ -52,8 +51,7 @@ const userSchema = new mongoose.Schema(
     },
     fitnessTarget: {
       type: String,
-      enum: ['WEIGHTLOSS', 'MUSCLEGAIN', 'STRENGTH', 'GENRALFITNESS', 'NULL'],
-      default: 'NULL',
+      default: "",
     },
     targetweight: {
       type: Number,
@@ -74,8 +72,7 @@ const userSchema = new mongoose.Schema(
     // Last Workout - When did user last work out
     lastWorkout: {
       type: String,
-      enum: ['last_week', 'last_month', 'last_6_months', 'never_or_over_a_year'],
-      default: null,
+      default: "",
     },
     // Training Location - Home or Gym
     trainingLocation: {
@@ -85,13 +82,12 @@ const userSchema = new mongoose.Schema(
     // Your fitness goal - target weight change per week (Lose 1 lb, Lose 0.5 lb, Maintain, Gain 0.5 lb, Gain 1 lb)
     weeklyWeightGoal: {
       type: String,
-      enum: ['lose_1', 'lose_0_5', 'maintain', 'gain_0_5', 'gain_1'],
-      default: null,
+      default: "",
     },
     // Daily calorie adjustment in kcal (-500, -250, 0, 250, 500)
     calorieAdjustment: {
       type: Number,
-      default: null,
+      default: "",
     },
     status: {
       type: String,
