@@ -80,8 +80,7 @@ const userSchema = new mongoose.Schema(
     // Training Location - Home or Gym
     trainingLocation: {
       type: String,
-      enum: ['home_workouts', 'gym_training'],
-      default: null,
+      default: "",
     },
     // Your fitness goal - target weight change per week (Lose 1 lb, Lose 0.5 lb, Maintain, Gain 0.5 lb, Gain 1 lb)
     weeklyWeightGoal: {
