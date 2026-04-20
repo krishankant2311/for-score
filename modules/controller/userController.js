@@ -44,10 +44,7 @@ const TRAINING_LOCATION_ALIASES = {
 const parseLastWorkoutSignup = (raw) => {
   if (raw == null || raw === '') return null;
   const rawValue = String(raw).trim();
-  let v = toSnakeToken(rawValue);
-  if (LAST_WORKOUT_ALIASES[v]) v = LAST_WORKOUT_ALIASES[v];
-  const allowed = ['last_week', 'last_month', 'last_6_months', 'never_or_over_a_year'];
-  return allowed.includes(v) ? rawValue : null;
+  return rawValue || null;
 };
 
 const parseTrainingLocationSignup = (raw) => {
