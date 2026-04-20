@@ -453,6 +453,54 @@ const getUserProfile = async (req, res, next) => {
   }
 };
 
+const updateProfilePhoto = async (req, res) => {
+  try {
+    const token = req.token;
+    const user_id = token?._id;
+
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: 'Profile photo is required',
+      });
+    }
+
+    const user = await User.findById(user_id);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    if (user.status === 'Deleted') {
+      return res.status(400).json({
+        success: false,
+        message: 'User account has been deleted',
+      });
+    }
+
+    user.profilePhoto = req.file.path;
+    await user.save();
+
+    const result = user.toObject();
+    delete result.password;
+
+    return res.status(200).json({
+      success: true,
+      message: 'Profile photo updated successfully',
+      data: result,
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: err.message,
+    });
+  }
+};
+
 // Change password for logged-in user
 const changeUserPassword = async (req, res) => {
   try {
@@ -1443,6 +1491,7 @@ module.exports = {
   forgotPassword,
   resetPassword,
   getUserProfile,
+  updateProfilePhoto,
   addGender,
   addHeight,
   addWeight,
