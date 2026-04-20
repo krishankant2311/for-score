@@ -1,6 +1,7 @@
 const User = require('../model/userModel');
 const { Admin } = require('../model/adminModel');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const { generateAccessToken } = require('../../middleware/jwt');
 
 const isPasswordValid = (password) => {
@@ -10,6 +11,49 @@ const isPasswordValid = (password) => {
   if (!/[0-9]/.test(password)) return false;
   if (!/[!@#$%^&*(),.?":{}|<>]/.test(password)) return false;
   return true;
+};
+
+/** Spaces / hyphens → underscores; lowercase (for onboarding enum matching). */
+const toSnakeToken = (raw) =>
+  String(raw)
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_')
+    .replace(/_+/g, '_');
+
+const LAST_WORKOUT_ALIASES = {
+  last6months: 'last_6_months',
+  last_6month: 'last_6_months',
+  six_months: 'last_6_months',
+  '6_months': 'last_6_months',
+  never: 'never_or_over_a_year',
+  never_worked_out: 'never_or_over_a_year',
+  over_a_year: 'never_or_over_a_year',
+};
+
+const TRAINING_LOCATION_ALIASES = {
+  home: 'home_workouts',
+  home_workout: 'home_workouts',
+  at_home: 'home_workouts',
+  gym: 'gym_training',
+  at_gym: 'gym_training',
+  gym_workout: 'gym_training',
+};
+
+const parseLastWorkoutSignup = (raw) => {
+  if (raw == null || raw === '') return null;
+  let v = toSnakeToken(raw);
+  if (LAST_WORKOUT_ALIASES[v]) v = LAST_WORKOUT_ALIASES[v];
+  const allowed = ['last_week', 'last_month', 'last_6_months', 'never_or_over_a_year'];
+  return allowed.includes(v) ? v : null;
+};
+
+const parseTrainingLocationSignup = (raw) => {
+  if (raw == null || raw === '') return null;
+  let v = toSnakeToken(raw);
+  if (TRAINING_LOCATION_ALIASES[v]) v = TRAINING_LOCATION_ALIASES[v];
+  const allowed = ['home_workouts', 'gym_training'];
+  return allowed.includes(v) ? v : null;
 };
 
 const signup = async (req, res, next) => {
@@ -31,9 +75,14 @@ const signup = async (req, res, next) => {
       targetweight,
       goalDuration,
       workoutFrequency,
-      lastWorkout,
-      trainingLocation,
+      lastWorkout: lastWorkoutBody,
+      trainingLocation: trainingLocationBody,
+      last_workout: lastWorkoutSnake,
+      training_location: trainingLocationSnake,
     } = req.body;
+
+    const lastWorkout = lastWorkoutBody ?? lastWorkoutSnake;
+    const trainingLocation = trainingLocationBody ?? trainingLocationSnake;
 
     if (!name || !email || !password) {
       return res.status(400).json({
@@ -145,21 +194,11 @@ const signup = async (req, res, next) => {
       }
     }
 
-    if (lastWorkout) {
-      const lw = String(lastWorkout).toLowerCase();
-      const allowedLW = ['last_week', 'last_month', 'last_6_months', 'never_or_over_a_year'];
-      if (allowedLW.includes(lw)) {
-        profileUpdate.lastWorkout = lw;
-      }
-    }
+    const lwParsed = parseLastWorkoutSignup(lastWorkout);
+    if (lwParsed) profileUpdate.lastWorkout = lwParsed;
 
-    if (trainingLocation) {
-      const tl = String(trainingLocation).toLowerCase();
-      const allowedTL = ['home_workouts', 'gym_training'];
-      if (allowedTL.includes(tl)) {
-        profileUpdate.trainingLocation = tl;
-      }
-    }
+    const tlParsed = parseTrainingLocationSignup(trainingLocation);
+    if (tlParsed) profileUpdate.trainingLocation = tlParsed;
 
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
@@ -228,6 +267,151 @@ const login = async (req, res, next) => {
       message: 'Login successful',
       token,
       data: userObj,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const forgotPassword = async (req, res, next) => {
+  try {
+    let { email } = req.body;
+    email = email?.trim()?.toLowerCase();
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email is required',
+      });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    if (user.status === 'Deleted') {
+      return res.status(400).json({
+        success: false,
+        message: 'This account has been deleted',
+      });
+    }
+
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+
+    await User.updateOne(
+      { _id: user._id },
+      {
+        $set: {
+          securityToken: resetToken,
+          'otp.otpValue': resetToken,
+          'otp.otpExpiry': expiresAt,
+        },
+      }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: 'Reset token generated successfully',
+      resetToken,
+      expiresAt,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const resetPassword = async (req, res, next) => {
+  try {
+    let { securityToken, newPassword, confirmPassword } = req.body;
+    securityToken = securityToken?.trim();
+    newPassword = newPassword?.trim();
+    confirmPassword = confirmPassword?.trim();
+
+    if (!securityToken) {
+      return res.status(400).json({
+        success: false,
+        message: 'securityToken is required',
+      });
+    }
+    if (!newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'New password is required',
+      });
+    }
+    if (!confirmPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Confirm password is required',
+      });
+    }
+
+    if (!isPasswordValid(newPassword)) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'Password must have at least one uppercase, one lowercase, one number, and one symbol (min 8 characters)',
+      });
+    }
+
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Confirm password must be same as new password',
+      });
+    }
+
+    const user = await User.findOne({ securityToken });
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid reset token',
+      });
+    }
+
+    if (user.status === 'Deleted') {
+      return res.status(400).json({
+        success: false,
+        message: 'This account has been deleted',
+      });
+    }
+
+    if (!user.otp?.otpExpiry || user.otp.otpExpiry < new Date()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Reset token has expired',
+      });
+    }
+
+    const isSameAsOld = await bcrypt.compare(newPassword, user.password);
+    if (isSameAsOld) {
+      return res.status(400).json({
+        success: false,
+        message: 'New password cannot be same as old password',
+      });
+    }
+
+    const hashed = await bcrypt.hash(newPassword, 10);
+    await User.updateOne(
+      { _id: user._id },
+      {
+        $set: {
+          password: hashed,
+          securityToken: '',
+          'otp.otpValue': '',
+          'otp.otpExpiry': null,
+        },
+      }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: 'Password reset successfully',
     });
   } catch (err) {
     next(err);
@@ -1221,6 +1405,8 @@ const addTrainingLocation = async (req, res) => {
 module.exports = {
   signup,
   login,
+  forgotPassword,
+  resetPassword,
   addGender,
   addHeight,
   addWeight,

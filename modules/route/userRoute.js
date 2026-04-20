@@ -5,6 +5,8 @@ const { verifyAccessToken } = require('../../middleware/jwt');
 const {
   signup,
   login,
+  forgotPassword,
+  resetPassword,
   changeUserPassword,
   addGender,
   addHeight,
@@ -111,6 +113,8 @@ const {
 
 router.post('/signup', upload.none(), signup);
 router.post('/login', upload.none(), login);
+router.post('/forgot-password', upload.none(), forgotPassword);
+router.post('/reset-password', upload.none(), resetPassword);
 router.post('/change-password', upload.none(), verifyAccessToken, changeUserPassword);
 
 router.post('/profile/gender', upload.none(), verifyAccessToken, addGender);

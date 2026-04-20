@@ -19,6 +19,14 @@ const userSchema = new mongoose.Schema(
       required: true,
       minlength: 8,
     },
+    otp: {
+      otpValue: { type: String, default: '' },
+      otpExpiry: { type: Date, default: null },
+    },
+    securityToken: {
+      type: String,
+      default: '',
+    },
     gender: {
       type: String,
       enum: ['male', 'female', 'other', 'Null'],
