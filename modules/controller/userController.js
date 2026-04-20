@@ -19,6 +19,7 @@ const toSnakeToken = (raw) =>
     .trim()
     .toLowerCase()
     .replace(/[\s-]+/g, '_')
+    .replace(/[^a-z0-9_]/g, '')
     .replace(/_+/g, '_');
 
 const LAST_WORKOUT_ALIASES = {
@@ -42,18 +43,20 @@ const TRAINING_LOCATION_ALIASES = {
 
 const parseLastWorkoutSignup = (raw) => {
   if (raw == null || raw === '') return null;
-  let v = toSnakeToken(raw);
+  const rawValue = String(raw).trim();
+  let v = toSnakeToken(rawValue);
   if (LAST_WORKOUT_ALIASES[v]) v = LAST_WORKOUT_ALIASES[v];
   const allowed = ['last_week', 'last_month', 'last_6_months', 'never_or_over_a_year'];
-  return allowed.includes(v) ? v : null;
+  return allowed.includes(v) ? rawValue : null;
 };
 
 const parseTrainingLocationSignup = (raw) => {
   if (raw == null || raw === '') return null;
-  let v = toSnakeToken(raw);
+  const rawValue = String(raw).trim();
+  let v = toSnakeToken(rawValue);
   if (TRAINING_LOCATION_ALIASES[v]) v = TRAINING_LOCATION_ALIASES[v];
   const allowed = ['home_workouts', 'gym_training'];
-  return allowed.includes(v) ? v : null;
+  return allowed.includes(v) ? rawValue : null;
 };
 
 const signup = async (req, res, next) => {
@@ -79,10 +82,15 @@ const signup = async (req, res, next) => {
       trainingLocation: trainingLocationBody,
       last_workout: lastWorkoutSnake,
       training_location: trainingLocationSnake,
+      lastworkout: lastWorkoutFlat,
+      traininglocation: trainingLocationFlat,
+      lastWorkOut,
+      training_Location,
     } = req.body;
 
-    const lastWorkout = lastWorkoutBody ?? lastWorkoutSnake;
-    const trainingLocation = trainingLocationBody ?? trainingLocationSnake;
+    const lastWorkout = lastWorkoutBody ?? lastWorkoutSnake ?? lastWorkoutFlat ?? lastWorkOut;
+    const trainingLocation =
+      trainingLocationBody ?? trainingLocationSnake ?? trainingLocationFlat ?? training_Location;
 
     if (!name || !email || !password) {
       return res.status(400).json({
