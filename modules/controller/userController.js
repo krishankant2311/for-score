@@ -423,6 +423,36 @@ const resetPassword = async (req, res, next) => {
   }
 };
 
+const getUserProfile = async (req, res, next) => {
+  try {
+    const token = req.token;
+    const user_id = token?._id;
+
+    const user = await User.findById(user_id).select('-password');
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    if (user.status === 'Deleted') {
+      return res.status(400).json({
+        success: false,
+        message: 'User account has been deleted',
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'User profile fetched successfully',
+      data: user,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
 // Change password for logged-in user
 const changeUserPassword = async (req, res) => {
   try {
@@ -1412,6 +1442,7 @@ module.exports = {
   login,
   forgotPassword,
   resetPassword,
+  getUserProfile,
   addGender,
   addHeight,
   addWeight,

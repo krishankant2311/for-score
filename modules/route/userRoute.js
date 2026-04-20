@@ -7,6 +7,7 @@ const {
   login,
   forgotPassword,
   resetPassword,
+  getUserProfile,
   changeUserPassword,
   addGender,
   addHeight,
@@ -115,6 +116,7 @@ router.post('/signup', upload.none(), signup);
 router.post('/login', upload.none(), login);
 router.post('/forgot-password', upload.none(), forgotPassword);
 router.post('/reset-password', upload.none(), resetPassword);
+router.get('/profile', upload.none(), verifyAccessToken, getUserProfile);
 router.post('/change-password', upload.none(), verifyAccessToken, changeUserPassword);
 
 router.post('/profile/gender', upload.none(), verifyAccessToken, addGender);
