@@ -171,12 +171,16 @@ const signup = async (req, res, next) => {
       ...profileUpdate,
     });
 
+    const payload = { _id: user._id, email: user.email };
+    const token = generateAccessToken(payload);
+
     const userObj = user.toObject();
     delete userObj.password;
 
     res.status(201).json({
       success: true,
       message: 'Account created successfully',
+      token,
       data: userObj,
     });
   } catch (err) {
