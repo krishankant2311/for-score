@@ -8,6 +8,7 @@ const {
   forgotPassword,
   resetPassword,
   getUserProfile,
+  updateUserProfile,
   updateProfilePhoto,
   changeUserPassword,
   addGender,
@@ -118,6 +119,7 @@ router.post('/login', upload.none(), login);
 router.post('/forgot-password', upload.none(), forgotPassword);
 router.post('/reset-password', upload.none(), resetPassword);
 router.get('/profile', upload.none(), verifyAccessToken, getUserProfile);
+router.post('/profile/edit', upload.none(), verifyAccessToken, updateUserProfile);
 router.post('/profile/photo', upload.single('photo'), verifyAccessToken, updateProfilePhoto);
 router.post('/change-password', upload.none(), verifyAccessToken, changeUserPassword);
 

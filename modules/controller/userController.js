@@ -453,6 +453,134 @@ const getUserProfile = async (req, res, next) => {
   }
 };
 
+const updateUserProfile = async (req, res, next) => {
+  try {
+    const token = req.token;
+    const user_id = token?._id;
+    const body = req.body || {};
+
+    const user = await User.findById(user_id);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    if (user.status === 'Deleted') {
+      return res.status(400).json({
+        success: false,
+        message: 'User account has been deleted',
+      });
+    }
+
+    if (body.name != null && body.name !== '') {
+      user.name = String(body.name).trim();
+    }
+
+    if (body.email != null && body.email !== '') {
+      const emailTrimmed = String(body.email).trim().toLowerCase();
+      const existingUser = await User.findOne({ email: emailTrimmed, _id: { $ne: user_id } });
+      if (existingUser) {
+        return res.status(400).json({
+          success: false,
+          message: 'Email already in use by another user',
+        });
+      }
+      user.email = emailTrimmed;
+    }
+
+    if (body.gender != null && body.gender !== '') {
+      user.gender = String(body.gender).trim();
+    }
+
+    if (body.age != null && body.age !== '' && !Number.isNaN(Number(body.age))) {
+      user.age = Number(body.age);
+    }
+
+    let heightVal = body.height;
+    if ((heightVal == null || heightVal === '') && (body.heightFeet != null || body.heightInches != null)) {
+      const ft = Number(body.heightFeet || 0);
+      const inch = Number(body.heightInches || 0);
+      if (!Number.isNaN(ft) && !Number.isNaN(inch)) {
+        heightVal = ft * 12 + inch;
+      }
+    }
+    if (heightVal != null && heightVal !== '' && !Number.isNaN(Number(heightVal))) {
+      user.height = Number(heightVal);
+    }
+
+    if (body.weight != null && body.weight !== '' && !Number.isNaN(Number(body.weight))) {
+      user.weight = Number(body.weight);
+    }
+
+    if (body.workoutSkillLevel != null && body.workoutSkillLevel !== '') {
+      user.workoutSkillLevel = String(body.workoutSkillLevel).trim();
+    }
+
+    if (body.workoutPreferences != null && body.workoutPreferences !== '') {
+      user.workoutPreferences = Array.isArray(body.workoutPreferences)
+        ? body.workoutPreferences.map((v) => String(v).trim()).join(',')
+        : String(body.workoutPreferences).trim();
+    }
+
+    if (body.workoutDuration != null && body.workoutDuration !== '' && !Number.isNaN(Number(body.workoutDuration))) {
+      user.workoutDuration = Number(body.workoutDuration);
+    }
+
+    if (body.fitnessTarget != null && body.fitnessTarget !== '') {
+      user.fitnessTarget = String(body.fitnessTarget).trim();
+    }
+
+    const targetWeightRaw = body.targetweight ?? body.targetWeight;
+    if (targetWeightRaw != null && targetWeightRaw !== '' && !Number.isNaN(Number(targetWeightRaw))) {
+      user.targetweight = Number(targetWeightRaw);
+    }
+
+    if (body.goalDuration != null && body.goalDuration !== '') {
+      user.goalDuration = String(body.goalDuration).trim();
+    }
+
+    if (body.workoutFrequency != null && body.workoutFrequency !== '' && !Number.isNaN(Number(body.workoutFrequency))) {
+      user.workoutFrequency = Number(body.workoutFrequency);
+    }
+
+    const lastWorkoutRaw =
+      body.lastWorkout ?? body.last_workout ?? body.lastworkout ?? body.lastWorkOut;
+    if (lastWorkoutRaw != null && String(lastWorkoutRaw).trim() !== '') {
+      user.lastWorkout = String(lastWorkoutRaw).trim();
+    }
+
+    const trainingLocationRaw =
+      body.trainingLocation ?? body.training_location ?? body.traininglocation ?? body.training_Location;
+    if (trainingLocationRaw != null && String(trainingLocationRaw).trim() !== '') {
+      user.trainingLocation = String(trainingLocationRaw).trim();
+    }
+
+    const weeklyWeightGoalRaw = body.weeklyWeightGoal ?? body.fitnessGoal;
+    if (weeklyWeightGoalRaw != null && weeklyWeightGoalRaw !== '') {
+      user.weeklyWeightGoal = String(weeklyWeightGoalRaw).trim();
+    }
+
+    if (body.calorieAdjustment != null && body.calorieAdjustment !== '' && !Number.isNaN(Number(body.calorieAdjustment))) {
+      user.calorieAdjustment = Number(body.calorieAdjustment);
+    }
+
+    await user.save();
+
+    const result = user.toObject();
+    delete result.password;
+
+    return res.status(200).json({
+      success: true,
+      message: 'Profile updated successfully',
+      data: result,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
 const updateProfilePhoto = async (req, res) => {
   try {
     const token = req.token;
@@ -1491,6 +1619,7 @@ module.exports = {
   forgotPassword,
   resetPassword,
   getUserProfile,
+  updateUserProfile,
   updateProfilePhoto,
   addGender,
   addHeight,
