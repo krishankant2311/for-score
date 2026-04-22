@@ -3,6 +3,8 @@ const { Admin } = require('../model/adminModel');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { generateAccessToken } = require('../../middleware/jwt');
+const { sendMail } = require('../service/mailService');
+const { getResetPasswordTemplate } = require('../service/resetPasswordTemplate');
 
 const isPasswordValid = (password) => {
   if (password.length < 8) return false;
@@ -319,11 +321,27 @@ const forgotPassword = async (req, res, next) => {
       }
     );
 
+    const resetBaseUrl =
+      process.env.USER_RESET_PASSWORD_URL ||
+      process.env.FRONTEND_RESET_PASSWORD_URL ||
+      'http://localhost:3000/reset-password';
+    const resetLink = `${resetBaseUrl}?token=${encodeURIComponent(resetToken)}`;
+
+    const subject = process.env.USER_RESET_EMAIL_SUBJECT || 'Reset your password';
+    await sendMail({
+      to: user.email,
+      subject,
+      text: `We received a request to reset your password.\n\nUse this link to continue (valid for 15 minutes):\n${resetLink}\n\nIf you did not request this, please ignore this email.`,
+      html: getResetPasswordTemplate(resetLink),
+    });
+
     return res.status(200).json({
       success: true,
-      message: 'Reset token generated successfully',
-      resetToken,
+      message: 'Reset link sent to your email',
       expiresAt,
+      result: {
+        resetLink,
+      },
     });
   } catch (err) {
     next(err);

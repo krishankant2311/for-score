@@ -3,6 +3,7 @@ const User = require('../model/userModel');
 const bcrypt = require('bcryptjs');
 const { generateAccessToken } = require('../../middleware/jwt');
 const crypto = require('crypto');
+const { sendMail } = require('../service/mailService');
 
 const isPasswordValid = (password) => {
   if (password.length < 8) return false;
@@ -49,16 +50,48 @@ const forgotPassword = async (req, res) => {
     const resetToken = crypto.randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
 
-    admin.securityToken = resetToken;
-    admin.otp.otpValue = resetToken; // reuse existing otp field
-    admin.otp.otpExpiry = expiresAt;
-    await admin.save();
+    await Admin.updateOne(
+      { _id: admin._id },
+      {
+        $set: {
+          securityToken: resetToken,
+          'otp.otpValue': resetToken,
+          'otp.otpExpiry': expiresAt,
+        },
+      }
+    );
 
-    // Note: in production, token should be emailed. For now we return it for testing.
+    const smtpReady =
+      Boolean(process.env.SMTP_HOST) &&
+      Boolean(process.env.SMTP_USER) &&
+      Boolean(process.env.SMTP_PASS);
+
+    let emailed = false;
+    if (smtpReady) {
+      try {
+        await sendMail({
+          to: admin.email,
+          subject: process.env.ADMIN_RESET_EMAIL_SUBJECT || 'Password reset — Admin',
+          text: `Use this token in POST /api/admin/reset-password as "securityToken". Valid 15 minutes.\n\n${resetToken}`,
+          html: `<p>Use this code to reset your password (valid 15 minutes):</p><p><strong>${resetToken}</strong></p>`,
+        });
+        emailed = true;
+      } catch (mailErr) {
+        console.error('Admin forgot password mail error:', mailErr);
+      }
+    }
+
+    const result = { expiresAt, emailed };
+    if (!emailed) {
+      result.resetToken = resetToken;
+    }
+
     return res.status(200).json({
       success: true,
-      message: 'Reset token generated successfully',
-      result: { resetToken, expiresAt },
+      message: emailed
+        ? 'Password reset instructions sent to your email'
+        : 'Reset token generated successfully',
+      result,
     });
   } catch (err) {
     console.error(err);
