@@ -113,6 +113,10 @@ const {
   getNotificationsForUser,
   markNotificationRead,
 } = require('../controller/notificationController');
+const {
+  getAllPlansForUser,
+  getPlanByIdForUser,
+} = require('../controller/planController');
 
 router.post('/signup', upload.none(), signup);
 router.post('/login', upload.none(), login);
@@ -222,5 +226,9 @@ router.get('/nutrition/summary', upload.none(), verifyAccessToken, getDailyNutri
 router.get('/nutrition/meals', upload.none(), verifyAccessToken, getDailyMeals);
 router.get('/nutrition/suggested-menu', upload.none(), verifyAccessToken, getSuggestedMenu);
 router.post('/meals/:id/delete', upload.none(), verifyAccessToken, deleteMealLog);
+
+// Plans (User read-only)
+router.get('/plans', upload.none(), verifyAccessToken, getAllPlansForUser);
+router.get('/plans/:id', upload.none(), verifyAccessToken, getPlanByIdForUser);
 
 module.exports = router;

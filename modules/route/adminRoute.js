@@ -118,6 +118,13 @@ const {
   getAppSettings,
   saveAppSettings,
 } = require('../controller/appSettingsController');
+const {
+  addPlan,
+  getAllPlansAdmin,
+  getPlanByIdAdmin,
+  updatePlan,
+  deletePlan,
+} = require('../controller/planController');
 const { getAdminDashboard } = require('../controller/dashboardController');
 
 router.post('/login', upload.none(), adminLogin);
@@ -224,6 +231,13 @@ router.get('/get-all-faq', upload.none(), verifyAccessToken, getAllFaqsAdmin);
 router.get('/get-faq/:id', upload.none(), verifyAccessToken, getFaqByIdAdmin);
 router.post('/update-faq/:id', upload.none(), verifyAccessToken, updateFaq);
 router.post('/delete-faq/:id', upload.none(), verifyAccessToken, deleteFaq);
+
+// Plans (Admin CRUD)
+router.post('/add-plan', upload.none(), verifyAccessToken, addPlan);
+router.get('/get-all-plans', upload.none(), verifyAccessToken, getAllPlansAdmin);
+router.get('/get-plan/:id', upload.none(), verifyAccessToken, getPlanByIdAdmin);
+router.post('/update-plan/:id', upload.none(), verifyAccessToken, updatePlan);
+router.post('/delete-plan/:id', upload.none(), verifyAccessToken, deletePlan);
 
 // Notifications (Admin)
 router.post('/send-notification', upload.none(), verifyAccessToken, sendNotificationByAdmin);
