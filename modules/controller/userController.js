@@ -85,9 +85,14 @@ const toPublicFileUrl = (req, storedPath) => {
 
 const attachProfilePhotoUrl = (req, data) => {
   if (!data || typeof data !== 'object') return data;
+  const profilePhotoUrl = toPublicFileUrl(req, data.profilePhoto);
+  const sanitized = { ...data };
+  delete sanitized.profilePhoto;
+
   return {
-    ...data,
-    profilePhotoUrl: toPublicFileUrl(req, data.profilePhoto),
+    ...sanitized,
+    profilePhoto: profilePhotoUrl,
+    profilePhotoUrl,
   };
 };
 
@@ -260,7 +265,7 @@ const signup = async (req, res, next) => {
       success: true,
       message: 'Account created successfully',
       token,
-      data: userObj,
+      data: attachProfilePhotoUrl(req, userObj),
     });
   } catch (err) {
     next(err);
@@ -306,7 +311,7 @@ const login = async (req, res, next) => {
       success: true,
       message: 'Login successful',
       token,
-      data: userObj,
+      data: attachProfilePhotoUrl(req, userObj),
     });
   } catch (err) {
     next(err);
@@ -803,7 +808,7 @@ const getAllActiveUsersByAdmin = async (req, res) => {
     return res.json({
       success: true,
       message: 'Active users fetched successfully',
-      result: users,
+      result: users.map((u) => attachProfilePhotoUrl(req, u.toObject())),
     });
   } catch (err) {
     console.error(err);
@@ -843,7 +848,7 @@ const getAllBlockedUsersByAdmin = async (req, res) => {
     return res.json({
       success: true,
       message: 'Blocked users fetched successfully',
-      result: users,
+      result: users.map((u) => attachProfilePhotoUrl(req, u.toObject())),
     });
   } catch (err) {
     console.error(err);
@@ -889,7 +894,7 @@ const getUserByIdByAdmin = async (req, res) => {
     return res.json({
       success: true,
       message: 'User fetched successfully',
-      result: user,
+      result: attachProfilePhotoUrl(req, user),
     });
   } catch (err) {
     console.error(err);
@@ -935,7 +940,7 @@ const getActiveUserByIdByAdmin = async (req, res) => {
     return res.json({
       success: true,
       message: 'Active user fetched successfully',
-      result: user,
+      result: attachProfilePhotoUrl(req, user),
     });
   } catch (err) {
     console.error(err);
@@ -981,7 +986,7 @@ const getBlockedUserByIdByAdmin = async (req, res) => {
     return res.json({
       success: true,
       message: 'Blocked user fetched successfully',
-      result: user,
+      result: attachProfilePhotoUrl(req, user),
     });
   } catch (err) {
     console.error(err);
