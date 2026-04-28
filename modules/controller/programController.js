@@ -144,6 +144,7 @@ const addProgram = async (req, res) => {
       avgSessionMinutes,
       equipment,
       quickStats,
+      videoPath,
     } = req.body;
     const { weekGrid, exerciseLibrary, recoveryProtocol } = pickProgramStepPayload(req.body);
 
@@ -217,6 +218,7 @@ const addProgram = async (req, res) => {
       weekGrid: weekGridParsed,
       exerciseLibrary: exerciseLibraryParsed,
       recoveryProtocol: recoveryProtocolParsed,
+      videoPath: req.file?.path || (videoPath != null ? String(videoPath).trim() : ''),
       status: statusVal,
     };
     syncQuickStatsFromProgramFields(doc);
@@ -432,6 +434,7 @@ const updateProgram = async (req, res) => {
       avgSessionMinutes,
       equipment,
       quickStats,
+      videoPath,
     } = req.body;
     const { weekGrid, exerciseLibrary, recoveryProtocol } = pickProgramStepPayload(req.body);
 
@@ -468,6 +471,11 @@ const updateProgram = async (req, res) => {
       program.avgSessionMinutes = parseOptionalNumber(avgSessionMinutes);
     if (equipment != null)
       program.equipment = parseStringArray(equipment);
+    if (req.file?.path) {
+      program.videoPath = req.file.path;
+    } else if (videoPath != null) {
+      program.videoPath = String(videoPath || '').trim();
+    }
 
     // If any step-payload is provided, enforce that ALL 3 step-payloads are provided together.
     const anyStepProvided = weekGrid != null || exerciseLibrary != null || recoveryProtocol != null;

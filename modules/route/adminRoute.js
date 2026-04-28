@@ -178,10 +178,10 @@ router.put('/update-recovery-content/:id', verifyAccessToken, uploadExerciseMedi
 router.delete('/delete-recovery-content/:id', upload.none(), verifyAccessToken, deleteRecoveryContent);
 
 // Programs (Workout Programs)
-router.post('/add-programs', upload.none(), verifyAccessToken, addProgram);
+router.post('/add-programs', verifyAccessToken, uploadExerciseMedia.single('video'), addProgram);
 router.get('/get-all-programs', upload.none(), verifyAccessToken, getAllPrograms);
 router.get('/programs/:id', upload.none(), verifyAccessToken, getProgramById);
-router.post('/update-programs/:id', upload.none(), verifyAccessToken, updateProgram);
+router.post('/update-programs/:id', verifyAccessToken, uploadExerciseMedia.single('video'), updateProgram);
 router.post('/delete-program/:id', upload.none(), verifyAccessToken, deleteProgram);
 
 // Privacy Policy (Admin CRUD)

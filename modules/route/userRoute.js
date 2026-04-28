@@ -116,6 +116,7 @@ const {
 const {
   getAllPlansForUser,
   getPlanByIdForUser,
+  selectPlanForUser,
 } = require('../controller/planController');
 
 router.post('/signup', upload.none(), signup);
@@ -230,5 +231,6 @@ router.post('/meals/:id/delete', upload.none(), verifyAccessToken, deleteMealLog
 // Plans (User read-only)
 router.get('/plans', upload.none(), verifyAccessToken, getAllPlansForUser);
 router.get('/plans/:id', upload.none(), verifyAccessToken, getPlanByIdForUser);
+router.post('/plans/select', upload.none(), verifyAccessToken, selectPlanForUser);
 
 module.exports = router;

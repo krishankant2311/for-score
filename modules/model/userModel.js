@@ -101,6 +101,15 @@ const userSchema = new mongoose.Schema(
       type: Number,
       default: "",
     },
+    selectedPlan: {
+      type: String,
+      default: '',
+    },
+    selectedPlanId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Plan',
+      default: null,
+    },
     status: {
       type: String,
       enum: ['Active', 'Blocked', 'Deleted', 'Pending'],

@@ -99,6 +99,11 @@ const programSchema = new mongoose.Schema(
       default: {},
       // e.g. { tue: {...}, thu: {...} }
     },
+    videoPath: {
+      type: String,
+      default: '',
+      trim: true,
+    },
     status: {
       type: String,
       enum: ['Active', 'Inactive', 'Draft', 'Deleted'],

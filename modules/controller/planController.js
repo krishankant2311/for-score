@@ -289,6 +289,59 @@ const getPlanByIdForUser = async (req, res, next) => {
   }
 };
 
+const selectPlanForUser = async (req, res, next) => {
+  try {
+    const token = req.token;
+    const user_id = token?._id;
+    const { planId } = req.body;
+
+    if (!planId) {
+      return res.status(400).json({
+        success: false,
+        message: 'planId is required',
+      });
+    }
+
+    const user = await User.findById(user_id);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    if (user.status === 'Deleted') {
+      return res.status(400).json({
+        success: false,
+        message: 'User account has been deleted',
+      });
+    }
+
+    const plan = await Plan.findOne({ _id: planId, status: 'Active' }).lean();
+    if (!plan) {
+      return res.status(404).json({
+        success: false,
+        message: 'Plan not found',
+      });
+    }
+
+    user.selectedPlan = plan.planName;
+    user.selectedPlanId = plan._id;
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Plan selected successfully',
+      result: {
+        selectedPlan: user.selectedPlan,
+        selectedPlanId: user.selectedPlanId,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
 module.exports = {
   addPlan,
   getAllPlansAdmin,
@@ -297,4 +350,5 @@ module.exports = {
   deletePlan,
   getAllPlansForUser,
   getPlanByIdForUser,
+  selectPlanForUser,
 };
