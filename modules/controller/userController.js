@@ -87,12 +87,10 @@ const attachProfilePhotoUrl = (req, data) => {
   if (!data || typeof data !== 'object') return data;
   const profilePhotoUrl = toPublicFileUrl(req, data.profilePhoto);
   const sanitized = { ...data };
-  delete sanitized.profilePhoto;
 
   return {
     ...sanitized,
     profilePhoto: profilePhotoUrl,
-    profilePhotoUrl,
   };
 };
 
