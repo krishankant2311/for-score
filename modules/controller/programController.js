@@ -106,6 +106,13 @@ const syncQuickStatsFromProgramFields = (p) => {
   };
 };
 
+const getProgramVideoPathFromRequest = (req) => {
+  if (req.file?.path) return req.file.path;
+  if (req.files?.video?.[0]?.path) return req.files.video[0].path;
+  if (req.files?.media?.[0]?.path) return req.files.media[0].path;
+  return '';
+};
+
 // 1. Add Program
 const addProgram = async (req, res) => {
   try {
@@ -148,16 +155,19 @@ const addProgram = async (req, res) => {
     } = req.body;
     const { weekGrid, exerciseLibrary, recoveryProtocol } = pickProgramStepPayload(req.body);
 
-    if (
-      !programName?.trim() ||
-      !String(subHeader ?? '').trim() ||
-      !String(overview ?? '').trim() ||
-      !workoutSkillLevel
-    ) {
+    const requiredFieldChecks = [
+      { key: 'programName', ok: !!String(programName ?? '').trim() },
+      { key: 'subHeader', ok: !!String(subHeader ?? '').trim() },
+      { key: 'overview', ok: !!String(overview ?? '').trim() },
+      { key: 'workoutSkillLevel', ok: !!String(workoutSkillLevel ?? '').trim() },
+    ];
+    const firstMissingField = requiredFieldChecks.find((item) => !item.ok);
+
+    if (firstMissingField) {
       return res.status(400).json({
         success: false,
-        message:
-          'programName, subHeader, overview and workoutSkillLevel (Level) are required',
+        message: `Missing required field (1 by 1): ${firstMissingField.key}`,
+        missingField: firstMissingField.key,
       });
     }
 
@@ -165,15 +175,18 @@ const addProgram = async (req, res) => {
     const weekGridParsed = parseJsonIfString(weekGrid, null);
     const exerciseLibraryParsed = parseJsonIfString(exerciseLibrary, null);
     const recoveryProtocolParsed = parseJsonIfString(recoveryProtocol, null);
-    if (
-      !isNonEmptyObject(weekGridParsed) ||
-      !isNonEmptyObject(exerciseLibraryParsed) ||
-      !isNonEmptyObject(recoveryProtocolParsed)
-    ) {
+    const requiredProgramPages = [
+      { key: 'weekGrid', ok: isNonEmptyObject(weekGridParsed) },
+      { key: 'exerciseLibrary', ok: isNonEmptyObject(exerciseLibraryParsed) },
+      { key: 'recoveryProtocol', ok: isNonEmptyObject(recoveryProtocolParsed) },
+    ];
+    const firstMissingProgramPage = requiredProgramPages.find((item) => !item.ok);
+
+    if (firstMissingProgramPage) {
       return res.status(400).json({
         success: false,
-        message:
-          'Please submit all program pages (weekGrid/exerciseLibrary/recoveryProtocol) before saving.',
+        message: `Missing required program page (1 by 1): ${firstMissingProgramPage.key}`,
+        missingField: firstMissingProgramPage.key,
       });
     }
 
@@ -218,7 +231,8 @@ const addProgram = async (req, res) => {
       weekGrid: weekGridParsed,
       exerciseLibrary: exerciseLibraryParsed,
       recoveryProtocol: recoveryProtocolParsed,
-      videoPath: req.file?.path || (videoPath != null ? String(videoPath).trim() : ''),
+      videoPath:
+        getProgramVideoPathFromRequest(req) || (videoPath != null ? String(videoPath).trim() : ''),
       status: statusVal,
     };
     syncQuickStatsFromProgramFields(doc);
@@ -471,8 +485,9 @@ const updateProgram = async (req, res) => {
       program.avgSessionMinutes = parseOptionalNumber(avgSessionMinutes);
     if (equipment != null)
       program.equipment = parseStringArray(equipment);
-    if (req.file?.path) {
-      program.videoPath = req.file.path;
+    const uploadedVideoPath = getProgramVideoPathFromRequest(req);
+    if (uploadedVideoPath) {
+      program.videoPath = uploadedVideoPath;
     } else if (videoPath != null) {
       program.videoPath = String(videoPath || '').trim();
     }
