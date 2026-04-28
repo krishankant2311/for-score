@@ -289,6 +289,53 @@ const getPlanByIdForUser = async (req, res, next) => {
   }
 };
 
+const getSelectedPlanForUser = async (req, res, next) => {
+  try {
+    const user = await getValidUser(req.token);
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: 'User not found or inactive',
+      });
+    }
+
+    if (!user.selectedPlanId) {
+      return res.status(200).json({
+        success: true,
+        message: 'No plan selected',
+        result: {
+          isPlanSelected: false,
+          selectedPlan: null,
+        },
+      });
+    }
+
+    const selectedPlan = await Plan.findById(user.selectedPlanId).lean();
+
+    if (!selectedPlan || selectedPlan.status === 'Deleted') {
+      return res.status(200).json({
+        success: true,
+        message: 'No plan selected',
+        result: {
+          isPlanSelected: false,
+          selectedPlan: null,
+        },
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Selected plan fetched successfully',
+      result: {
+        isPlanSelected: true,
+        selectedPlan,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
 const selectPlanForUser = async (req, res, next) => {
   try {
     const token = req.token;
@@ -349,6 +396,7 @@ module.exports = {
   updatePlan,
   deletePlan,
   getAllPlansForUser,
+  getSelectedPlanForUser,
   getPlanByIdForUser,
   selectPlanForUser,
 };

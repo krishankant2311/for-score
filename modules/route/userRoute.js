@@ -115,6 +115,7 @@ const {
 } = require('../controller/notificationController');
 const {
   getAllPlansForUser,
+  getSelectedPlanForUser,
   getPlanByIdForUser,
   selectPlanForUser,
 } = require('../controller/planController');
@@ -230,6 +231,7 @@ router.post('/meals/:id/delete', upload.none(), verifyAccessToken, deleteMealLog
 
 // Plans (User read-only)
 router.get('/plans', upload.none(), verifyAccessToken, getAllPlansForUser);
+router.get('/plans/selected', upload.none(), verifyAccessToken, getSelectedPlanForUser);
 router.get('/plans/:id', upload.none(), verifyAccessToken, getPlanByIdForUser);
 router.post('/plans/select', upload.none(), verifyAccessToken, selectPlanForUser);
 
