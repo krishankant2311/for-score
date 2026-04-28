@@ -58,6 +58,39 @@ const parseTrainingLocationSignup = (raw) => {
   return allowed.includes(v) ? rawValue : null;
 };
 
+const buildPublicBaseUrl = (req) =>
+  process.env.PUBLIC_BASE_URL?.trim() || `${req.protocol}://${req.get('host')}`;
+
+const toPublicFileUrl = (req, storedPath) => {
+  if (!storedPath) return '';
+  const raw = String(storedPath).trim();
+  if (!raw) return '';
+  if (/^https?:\/\//i.test(raw)) return raw;
+
+  const normalized = raw.replace(/\\/g, '/');
+  const uploadsMarker = '/uploads/';
+  const idx = normalized.toLowerCase().lastIndexOf(uploadsMarker);
+
+  let publicPath = '';
+  if (idx >= 0) {
+    publicPath = normalized.slice(idx);
+  } else {
+    const fileName = normalized.split('/').filter(Boolean).pop();
+    publicPath = fileName ? `/uploads/${fileName}` : '';
+  }
+
+  if (!publicPath) return '';
+  return `${buildPublicBaseUrl(req)}${publicPath}`;
+};
+
+const attachProfilePhotoUrl = (req, data) => {
+  if (!data || typeof data !== 'object') return data;
+  return {
+    ...data,
+    profilePhotoUrl: toPublicFileUrl(req, data.profilePhoto),
+  };
+};
+
 const signup = async (req, res, next) => {
   try {
     const {
@@ -464,7 +497,7 @@ const getUserProfile = async (req, res, next) => {
     return res.status(200).json({
       success: true,
       message: 'User profile fetched successfully',
-      data: user,
+      data: attachProfilePhotoUrl(req, user.toObject()),
     });
   } catch (err) {
     next(err);
@@ -592,7 +625,7 @@ const updateUserProfile = async (req, res, next) => {
     return res.status(200).json({
       success: true,
       message: 'Profile updated successfully',
-      data: result,
+      data: attachProfilePhotoUrl(req, result),
     });
   } catch (err) {
     next(err);
@@ -635,7 +668,7 @@ const updateProfilePhoto = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: 'Profile photo updated successfully',
-      data: result,
+      data: attachProfilePhotoUrl(req, result),
     });
   } catch (err) {
     console.error(err);
