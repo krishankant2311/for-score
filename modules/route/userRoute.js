@@ -4,6 +4,7 @@ const upload = require('../../middleware/multer');
 const { verifyAccessToken } = require('../../middleware/jwt');
 const {
   signup,
+  verifySignupOtp,
   login,
   forgotPassword,
   resetPassword,
@@ -71,17 +72,15 @@ const {
 } = require('../controller/progressPhotoController');
 const {
   addOrUpdateMealLog,
+  scheduleMealByFoodId,
   getDailyNutritionSummary,
   getDailyMeals,
   getSuggestedMenu,
   deleteMealLog,
 } = require('../controller/nutritionDashboardController');
 const {
-  addFood,
   getAllFoods,
   getFoodById,
-  updateFood,
-  deleteFood,
 } = require('../controller/foodController');
 const {
   addFeedback,
@@ -121,6 +120,7 @@ const {
 } = require('../controller/planController');
 
 router.post('/signup', upload.none(), signup);
+router.post('/verify-signup-otp', upload.none(), verifySignupOtp);
 router.post('/login', upload.none(), login);
 router.post('/forgot-password', upload.none(), forgotPassword);
 router.post('/reset-password', upload.none(), resetPassword);
@@ -182,12 +182,9 @@ router.post('/notifications/:id/read', upload.none(), verifyAccessToken, markNot
 router.get('/recovery-content', upload.none(), verifyAccessToken, getAllRecoveryContentForUser);
 router.get('/recovery-content/:id', upload.none(), verifyAccessToken, getRecoveryContentByIdForUser);
 
-// Foods (user-scoped CRUD)
-router.post('/add-foods', upload.none(), verifyAccessToken, addFood);
+// Foods (admin catalog for users)
 router.get('/getall-foods', upload.none(), verifyAccessToken, getAllFoods);
 router.get('/get-foods/:id', upload.none(), verifyAccessToken, getFoodById);
-router.post('/update-foods/:id', upload.none(), verifyAccessToken, updateFood);
-router.post('/delete-foods/:id', upload.none(), verifyAccessToken, deleteFood);
 
 // Feedback (user → send feedback)
 router.post('/add-feedback', upload.none(), verifyAccessToken, addFeedback);
@@ -224,6 +221,7 @@ router.post('/progress-photos/:id/delete', upload.none(), verifyAccessToken, del
 
 // Nutrition Dashboard (Today’s Nutrition)
 router.post('/meals', upload.none(), verifyAccessToken, addOrUpdateMealLog);
+router.post('/meals/schedule', upload.none(), verifyAccessToken, scheduleMealByFoodId);
 router.get('/nutrition/summary', upload.none(), verifyAccessToken, getDailyNutritionSummary);
 router.get('/nutrition/meals', upload.none(), verifyAccessToken, getDailyMeals);
 router.get('/nutrition/suggested-menu', upload.none(), verifyAccessToken, getSuggestedMenu);

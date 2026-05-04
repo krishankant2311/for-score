@@ -2,10 +2,10 @@ const mongoose = require('mongoose');
 
 const foodSchema = new mongoose.Schema(
   {
-    userId: {
+    createdByAdminId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      required: true,
+      ref: 'Admin',
+      default: null,
     },
     name: {
       type: String,

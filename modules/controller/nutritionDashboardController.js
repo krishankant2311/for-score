@@ -1,6 +1,7 @@
 const User = require('../model/userModel');
 const NutritionItem = require('../model/nutritionItemModel');
 const MealLog = require('../model/mealLogModel');
+const Food = require('../model/foodModel');
 
 const normalizeDate = (dateStr) => {
   const d = dateStr ? new Date(dateStr) : new Date();
@@ -61,6 +62,7 @@ const addOrUpdateMealLog = async (req, res) => {
       const fats = Number(it.fats || 0) * qty;
 
       return {
+        foodId: it.foodId || null,
         nutritionItemId: it.nutritionItemId || null,
         name: (it.name || '').trim(),
         calories,
@@ -68,6 +70,8 @@ const addOrUpdateMealLog = async (req, res) => {
         carbs,
         fats,
         quantity: qty,
+        mealTime: (it.mealTime || '').trim(),
+        servingSize: (it.servingSize || '').trim(),
       };
     });
 
@@ -111,6 +115,92 @@ const addOrUpdateMealLog = async (req, res) => {
     return res.json({
       success: true,
       message: 'Meal log saved successfully',
+      result: log,
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: err.message,
+    });
+  }
+};
+
+// 1B. Schedule a meal item from food catalog using food id
+const scheduleMealByFoodId = async (req, res) => {
+  try {
+    const user_id = req.token?._id;
+    const user = await User.findById(user_id);
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    const { date, mealType, foodId, quantity, mealTime, notes } = req.body;
+    if (!mealType || !foodId) {
+      return res.status(400).json({
+        success: false,
+        message: 'mealType and foodId are required',
+      });
+    }
+
+    const normalizedDate = normalizeDate(date);
+    const food = await Food.findOne({ _id: foodId, status: { $ne: 'Deleted' } }).lean();
+    if (!food) {
+      return res.status(404).json({
+        success: false,
+        message: 'Food not found',
+      });
+    }
+
+    const qty = quantity != null && quantity !== '' ? Number(quantity) : 1;
+    if (Number.isNaN(qty) || qty <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'quantity must be a valid positive number',
+      });
+    }
+
+    const item = {
+      foodId: food._id,
+      nutritionItemId: null,
+      name: food.name,
+      calories: (food.calories || 0) * qty,
+      protein: (food.protein || 0) * qty,
+      carbs: (food.carbs || 0) * qty,
+      fats: (food.fats || 0) * qty,
+      quantity: qty,
+      mealTime: (mealTime || '').trim(),
+      servingSize: (food.servingSize || '').trim(),
+    };
+
+    let log = await MealLog.findOne({
+      userId: user_id,
+      date: normalizedDate,
+      mealType,
+      status: { $ne: 'Deleted' },
+    });
+
+    if (!log) {
+      log = await MealLog.create({
+        userId: user_id,
+        date: normalizedDate,
+        mealType,
+        items: [item],
+        notes: (notes || '').trim(),
+      });
+    } else {
+      log.items.push(item);
+      if (notes != null) log.notes = (notes || '').trim();
+      await log.save();
+    }
+
+    return res.json({
+      success: true,
+      message: 'Meal scheduled successfully',
       result: log,
     });
   } catch (err) {
@@ -237,10 +327,17 @@ const getDailyMeals = async (req, res) => {
       .sort({ mealType: 1, createdAt: 1 })
       .lean();
 
+    const sortedLogs = logs.map((log) => ({
+      ...log,
+      items: [...(log.items || [])].sort((a, b) =>
+        String(a.mealTime || '').localeCompare(String(b.mealTime || ''))
+      ),
+    }));
+
     return res.json({
       success: true,
       message: 'Daily meals fetched successfully',
-      result: logs,
+      result: sortedLogs,
     });
   } catch (err) {
     console.error(err);
@@ -364,6 +461,7 @@ const deleteMealLog = async (req, res) => {
 
 module.exports = {
   addOrUpdateMealLog,
+  scheduleMealByFoodId,
   getDailyNutritionSummary,
   getDailyMeals,
   getSuggestedMenu,

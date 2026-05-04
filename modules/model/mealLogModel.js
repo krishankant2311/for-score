@@ -2,9 +2,15 @@ const mongoose = require('mongoose');
 
 const mealItemSchema = new mongoose.Schema(
   {
+    foodId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Food',
+      default: null,
+    },
     nutritionItemId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'NutritionItem',
+      default: null,
     },
     name: {
       type: String,
@@ -30,6 +36,16 @@ const mealItemSchema = new mongoose.Schema(
     quantity: {
       type: Number,
       default: 1,
+    },
+    mealTime: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    servingSize: {
+      type: String,
+      default: '',
+      trim: true,
     },
   },
   { _id: false }

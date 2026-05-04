@@ -5,6 +5,125 @@ const crypto = require('crypto');
 const { generateAccessToken } = require('../../middleware/jwt');
 const { sendMail } = require('../service/mailService');
 const { getResetPasswordTemplate } = require('../service/resetPasswordTemplate');
+const { getSignupOtpTemplate } = require('../service/signupOtpTemplate');
+
+const SIGNUP_OTP_TTL_MS = 15 * 60 * 1000;
+
+const generateSignupOtp = () => String(Math.floor(100000 + Math.random() * 900000));
+
+const buildSignupProfileUpdate = (body) => {
+  const {
+    gender,
+    heightFeet,
+    heightInches,
+    height,
+    weight,
+    age,
+    fitnessGoal,
+    workoutSkillLevel,
+    workoutPreferences,
+    fitnessTarget,
+    targetweight,
+    goalDuration,
+    workoutFrequency,
+    lastWorkout: lastWorkoutBody,
+    trainingLocation: trainingLocationBody,
+    last_workout: lastWorkoutSnake,
+    training_location: trainingLocationSnake,
+    lastworkout: lastWorkoutFlat,
+    traininglocation: trainingLocationFlat,
+    lastWorkOut,
+    training_Location,
+  } = body;
+
+  const lastWorkout = lastWorkoutBody ?? lastWorkoutSnake ?? lastWorkoutFlat ?? lastWorkOut;
+  const trainingLocation =
+    trainingLocationBody ?? trainingLocationSnake ?? trainingLocationFlat ?? training_Location;
+
+  const profileUpdate = {};
+
+  if (gender) {
+    const g = String(gender).toLowerCase();
+    if (['male', 'female', 'other'].includes(g)) {
+      profileUpdate.gender = g;
+    }
+  }
+
+  let heightVal = height;
+  if ((heightVal == null || heightVal === '') && (heightFeet != null || heightInches != null)) {
+    const ft = Number(heightFeet || 0);
+    const inch = Number(heightInches || 0);
+    if (!Number.isNaN(ft) && !Number.isNaN(inch)) {
+      heightVal = ft * 12 + inch;
+    }
+  }
+  if (heightVal != null && heightVal !== '' && !Number.isNaN(Number(heightVal))) {
+    profileUpdate.height = Number(heightVal);
+  }
+
+  if (weight != null && weight !== '' && !Number.isNaN(Number(weight))) {
+    profileUpdate.weight = Number(weight);
+  }
+
+  if (age != null && age !== '' && !Number.isNaN(Number(age))) {
+    profileUpdate.age = Number(age);
+  }
+
+  if (fitnessGoal) {
+    const allowedGoals = ['lose_1', 'lose_0_5', 'maintain', 'gain_0_5', 'gain_1'];
+    const goalVal = String(fitnessGoal).toLowerCase();
+    if (allowedGoals.includes(goalVal)) {
+      profileUpdate.weeklyWeightGoal = goalVal;
+    }
+  }
+
+  if (workoutSkillLevel) {
+    const wl = String(workoutSkillLevel).toUpperCase();
+    const allowed = ['BEGINNER', 'INTERMEDIATE', 'ADVANCED'];
+    if (allowed.includes(wl)) {
+      profileUpdate.workoutSkillLevel = wl;
+    }
+  }
+
+  if (workoutPreferences) {
+    profileUpdate.workoutPreferences = String(workoutPreferences).trim();
+  }
+
+  if (fitnessTarget) {
+    const ft = String(fitnessTarget).toUpperCase();
+    const allowedTargets = ['WEIGHTLOSS', 'MUSCLEGAIN', 'STRENGTH', 'GENRALFITNESS'];
+    if (allowedTargets.includes(ft)) {
+      profileUpdate.fitnessTarget = ft;
+    }
+  }
+
+  if (targetweight != null && targetweight !== '' && !Number.isNaN(Number(targetweight))) {
+    profileUpdate.targetweight = Number(targetweight);
+  }
+
+  if (goalDuration) {
+    const gd = String(goalDuration).toLowerCase();
+    const allowedGD = ['8w', '12w', '16w', '24w'];
+    if (allowedGD.includes(gd)) {
+      profileUpdate.goalDuration = gd;
+    }
+  }
+
+  if (workoutFrequency != null && workoutFrequency !== '' && !Number.isNaN(Number(workoutFrequency))) {
+    const wf = Number(workoutFrequency);
+    if ([3, 4, 5, 6].includes(wf)) {
+      profileUpdate.workoutFrequency = wf;
+    }
+  }
+
+  const lwParsed = parseLastWorkoutSignup(lastWorkout);
+  if (lwParsed) profileUpdate.lastWorkout = lwParsed;
+
+  const tlParsed = parseTrainingLocationSignup(trainingLocation);
+  if (tlParsed) profileUpdate.trainingLocation = tlParsed;
+
+  return profileUpdate;
+};
 
 const isPasswordValid = (password) => {
   if (password.length < 8) return false;
@@ -96,36 +215,7 @@ const attachProfilePhotoUrl = (req, data) => {
 
 const signup = async (req, res, next) => {
   try {
-    const {
-      name,
-      email,
-      password,
-      gender,
-      heightFeet,
-      heightInches,
-      height, // optional direct inches/cm
-      weight,
-      age,
-      fitnessGoal, // weeklyWeightGoal
-      workoutSkillLevel,
-      workoutPreferences,
-      fitnessTarget,
-      targetweight,
-      goalDuration,
-      workoutFrequency,
-      lastWorkout: lastWorkoutBody,
-      trainingLocation: trainingLocationBody,
-      last_workout: lastWorkoutSnake,
-      training_location: trainingLocationSnake,
-      lastworkout: lastWorkoutFlat,
-      traininglocation: trainingLocationFlat,
-      lastWorkOut,
-      training_Location,
-    } = req.body;
-
-    const lastWorkout = lastWorkoutBody ?? lastWorkoutSnake ?? lastWorkoutFlat ?? lastWorkOut;
-    const trainingLocation =
-      trainingLocationBody ?? trainingLocationSnake ?? trainingLocationFlat ?? training_Location;
+    const { name, email, password } = req.body;
 
     if (!name || !email || !password) {
       return res.status(400).json({
@@ -153,115 +243,140 @@ const signup = async (req, res, next) => {
           result: {},
         });
       }
-      return res.status(400).json({
-        success: false,
-        message: 'This email is already registered. Please sign in.',
-        result: {},
-      });
-    }
-    // Build initial profile fields from onboarding flow
-    const profileUpdate = {};
-
-    if (gender) {
-      const g = String(gender).toLowerCase();
-      if (['male', 'female', 'other'].includes(g)) {
-        profileUpdate.gender = g;
+      if (existingUser.status !== 'Pending') {
+        return res.status(400).json({
+          success: false,
+          message: 'This email is already registered. Please sign in.',
+          result: {},
+        });
       }
     }
 
-    let heightVal = height;
-    if ((heightVal == null || heightVal === '') && (heightFeet != null || heightInches != null)) {
-      const ft = Number(heightFeet || 0);
-      const inch = Number(heightInches || 0);
-      if (!Number.isNaN(ft) && !Number.isNaN(inch)) {
-        heightVal = ft * 12 + inch;
-      }
-    }
-    if (heightVal != null && heightVal !== '' && !Number.isNaN(Number(heightVal))) {
-      profileUpdate.height = Number(heightVal);
-    }
-
-    if (weight != null && weight !== '' && !Number.isNaN(Number(weight))) {
-      profileUpdate.weight = Number(weight);
-    }
-
-    if (age != null && age !== '' && !Number.isNaN(Number(age))) {
-      profileUpdate.age = Number(age);
-    }
-
-    if (fitnessGoal) {
-      const allowedGoals = ['lose_1', 'lose_0_5', 'maintain', 'gain_0_5', 'gain_1'];
-      const goalVal = String(fitnessGoal).toLowerCase();
-      if (allowedGoals.includes(goalVal)) {
-        profileUpdate.weeklyWeightGoal = goalVal;
-      }
-    }
-
-    if (workoutSkillLevel) {
-      const wl = String(workoutSkillLevel).toUpperCase();
-      const allowed = ['BEGINNER', 'INTERMEDIATE', 'ADVANCED'];
-      if (allowed.includes(wl)) {
-        profileUpdate.workoutSkillLevel = wl;
-      }
-    }
-
-    if (workoutPreferences) {
-      // expect comma-separated string from UI
-      profileUpdate.workoutPreferences = String(workoutPreferences).trim();
-    }
-
-    if (fitnessTarget) {
-      const ft = String(fitnessTarget).toUpperCase();
-      const allowedTargets = ['WEIGHTLOSS', 'MUSCLEGAIN', 'STRENGTH', 'GENRALFITNESS'];
-      if (allowedTargets.includes(ft)) {
-        profileUpdate.fitnessTarget = ft;
-      }
-    }
-
-    if (targetweight != null && targetweight !== '' && !Number.isNaN(Number(targetweight))) {
-      profileUpdate.targetweight = Number(targetweight);
-    }
-
-    if (goalDuration) {
-      const gd = String(goalDuration).toLowerCase();
-      const allowedGD = ['8w', '12w', '16w', '24w'];
-      if (allowedGD.includes(gd)) {
-        profileUpdate.goalDuration = gd;
-      }
-    }
-
-    if (workoutFrequency != null && workoutFrequency !== '' && !Number.isNaN(Number(workoutFrequency))) {
-      const wf = Number(workoutFrequency);
-      if ([3, 4, 5, 6].includes(wf)) {
-        profileUpdate.workoutFrequency = wf;
-      }
-    }
-
-    const lwParsed = parseLastWorkoutSignup(lastWorkout);
-    if (lwParsed) profileUpdate.lastWorkout = lwParsed;
-
-    const tlParsed = parseTrainingLocationSignup(trainingLocation);
-    if (tlParsed) profileUpdate.trainingLocation = tlParsed;
+    const profileUpdate = buildSignupProfileUpdate(req.body);
 
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    const user = await User.create({
-      name: name.trim(),
-      email: emailTrimmed,
-      password: hashedPassword,
-      ...profileUpdate,
+    const otp = generateSignupOtp();
+    const signupOtpExpiry = new Date(Date.now() + SIGNUP_OTP_TTL_MS);
+    const subject = process.env.SIGNUP_OTP_EMAIL_SUBJECT || 'Verify your Four Score account';
+
+    if (existingUser) {
+      await User.updateOne(
+        { _id: existingUser._id },
+        {
+          $set: {
+            name: name.trim(),
+            password: hashedPassword,
+            ...profileUpdate,
+            signupOtp: otp,
+            signupOtpExpiry,
+            securityToken: '',
+            'otp.otpValue': '',
+            'otp.otpExpiry': null,
+          },
+        }
+      );
+    } else {
+      await User.create({
+        name: name.trim(),
+        email: emailTrimmed,
+        password: hashedPassword,
+        status: 'Pending',
+        ...profileUpdate,
+        signupOtp: otp,
+        signupOtpExpiry,
+      });
+    }
+
+    await sendMail({
+      to: emailTrimmed,
+      subject,
+      text: `Your Four Score verification code is: ${otp}\n\nThis code is valid for 15 minutes.\n\nIf you did not sign up, you can ignore this email.`,
+      html: getSignupOtpTemplate(otp),
     });
 
-    const payload = { _id: user._id, email: user.email };
-    const token = generateAccessToken(payload);
+    const statusCode = existingUser ? 200 : 201;
+    res.status(statusCode).json({
+      success: true,
+      message: 'Verification code sent to your email',
+      requiresEmailVerification: true,
+      result: { email: emailTrimmed },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
 
-    const userObj = user.toObject();
+const verifySignupOtp = async (req, res, next) => {
+  try {
+    let { email, otp } = req.body;
+    email = email?.trim()?.toLowerCase();
+    otp = String(otp ?? '').trim();
+
+    if (!email || !otp) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email and OTP are required',
+      });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    if (user.status === 'Deleted') {
+      return res.status(400).json({
+        success: false,
+        message: 'This account has been deleted',
+      });
+    }
+
+    if (user.status !== 'Pending') {
+      return res.status(400).json({
+        success: false,
+        message: 'Account is already verified. Please sign in.',
+      });
+    }
+
+    if (!user.signupOtpExpiry || user.signupOtpExpiry < new Date()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Verification code has expired. Sign up again to receive a new code.',
+      });
+    }
+
+    if (user.signupOtp !== otp) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid verification code',
+      });
+    }
+
+    await User.updateOne(
+      { _id: user._id },
+      {
+        $set: {
+          status: 'Active',
+          signupOtp: '',
+          signupOtpExpiry: null,
+        },
+      }
+    );
+
+    const fresh = await User.findById(user._id);
+    const payload = { _id: fresh._id, email: fresh.email };
+    const token = generateAccessToken(payload);
+    const userObj = fresh.toObject();
     delete userObj.password;
 
-    res.status(201).json({
+    return res.status(200).json({
       success: true,
-      message: 'Account created successfully',
+      message: 'Email verified. Account activated.',
       token,
       data: attachProfilePhotoUrl(req, userObj),
     });
@@ -296,6 +411,13 @@ const login = async (req, res, next) => {
       return res.status(401).json({
         success: false,
         message: 'Invalid email or password',
+      });
+    }
+
+    if (user.status === 'Pending') {
+      return res.status(403).json({
+        success: false,
+        message: 'Please verify your email with the code we sent you before signing in.',
       });
     }
 
@@ -340,6 +462,13 @@ const forgotPassword = async (req, res, next) => {
       return res.status(400).json({
         success: false,
         message: 'This account has been deleted',
+      });
+    }
+
+    if (user.status === 'Pending') {
+      return res.status(400).json({
+        success: false,
+        message: 'Please verify your email with the code sent at signup before using forgot password.',
       });
     }
 
@@ -1669,6 +1798,7 @@ const addTrainingLocation = async (req, res) => {
 
 module.exports = {
   signup,
+  verifySignupOtp,
   login,
   forgotPassword,
   resetPassword,

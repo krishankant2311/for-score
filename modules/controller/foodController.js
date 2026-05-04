@@ -1,17 +1,28 @@
-const User = require('../model/userModel');
+const { Admin } = require('../model/adminModel');
 const Food = require('../model/foodModel');
+const User = require('../model/userModel');
 
-// 1. Add Food (for logged-in user)
-const addFood = async (req, res) => {
+const allowedCategories = ['Protein', 'Carbs', 'Vegetables', 'Fruit', 'Fats', 'Other'];
+const allowedMealTypes = ['Breakfast', 'Lunch', 'Snack', 'Dinner', 'Other'];
+
+const getValidAdmin = async (token) => {
+  const admin_id = token?._id;
+  if (!admin_id) return null;
+
+  const admin = await Admin.findById(admin_id);
+  if (!admin) return null;
+  if (admin.status === 'Deleted') return null;
+  return admin;
+};
+
+// 1. Admin - Add food in global catalog
+const addFoodByAdmin = async (req, res) => {
   try {
-    const token = req.token;
-    const user_id = token?._id;
-
-    const user = await User.findById(user_id);
-    if (!user) {
+    const admin = await getValidAdmin(req.token);
+    if (!admin) {
       return res.status(400).json({
         success: false,
-        message: 'User not found',
+        message: 'Admin not found or inactive',
       });
     }
 
@@ -34,20 +45,14 @@ const addFood = async (req, res) => {
     }
 
     const food = await Food.create({
-      userId: user_id,
+      createdByAdminId: admin._id,
       name: name.trim(),
       calories: Number(calories),
       protein: protein != null && protein !== '' ? Number(protein) : 0,
       carbs: carbs != null && carbs !== '' ? Number(carbs) : 0,
       fats: fats != null && fats !== '' ? Number(fats) : 0,
-      category:
-        category && ['Protein', 'Carbs', 'Vegetables', 'Fruit', 'Fats', 'Other'].includes(category)
-          ? category
-          : 'Other',
-      mealType:
-        mealType && ['Breakfast', 'Lunch', 'Snack', 'Dinner', 'Other'].includes(mealType)
-          ? mealType
-          : 'Other',
+      category: category && allowedCategories.includes(category) ? category : 'Other',
+      mealType: mealType && allowedMealTypes.includes(mealType) ? mealType : 'Other',
       servingSize: (servingSize || '').trim(),
     });
 
@@ -66,7 +71,7 @@ const addFood = async (req, res) => {
   }
 };
 
-// 2. Get all foods for logged-in user (non-deleted)
+// 2. User - Get global food catalog (admin created)
 const getAllFoods = async (req, res) => {
   try {
     const token = req.token;
@@ -80,10 +85,13 @@ const getAllFoods = async (req, res) => {
       });
     }
 
-    const foods = await Food.find({
-      userId: user_id,
-      status: { $ne: 'Deleted' },
-    })
+    const category = req.query.category;
+    const mealType = req.query.mealType;
+    const query = { status: { $ne: 'Deleted' } };
+    if (category && allowedCategories.includes(category)) query.category = category;
+    if (mealType && allowedMealTypes.includes(mealType)) query.mealType = mealType;
+
+    const foods = await Food.find(query)
       .sort({ createdAt: -1 })
       .lean();
 
@@ -102,7 +110,7 @@ const getAllFoods = async (req, res) => {
   }
 };
 
-// 3. Get single food by id (for logged-in user)
+// 3. User - Get single food by id
 const getFoodById = async (req, res) => {
   try {
     const token = req.token;
@@ -117,11 +125,7 @@ const getFoodById = async (req, res) => {
     }
 
     const { id } = req.params;
-    const food = await Food.findOne({
-      _id: id,
-      userId: user_id,
-      status: { $ne: 'Deleted' },
-    }).lean();
+    const food = await Food.findOne({ _id: id, status: { $ne: 'Deleted' } }).lean();
 
     if (!food) {
       return res.status(404).json({
@@ -145,17 +149,14 @@ const getFoodById = async (req, res) => {
   }
 };
 
-// 4. Update food
-const updateFood = async (req, res) => {
+// 4. Admin - Update food
+const updateFoodByAdmin = async (req, res) => {
   try {
-    const token = req.token;
-    const user_id = token?._id;
-
-    const user = await User.findById(user_id);
-    if (!user) {
+    const admin = await getValidAdmin(req.token);
+    if (!admin) {
       return res.status(400).json({
         success: false,
-        message: 'User not found',
+        message: 'Admin not found or inactive',
       });
     }
 
@@ -171,11 +172,7 @@ const updateFood = async (req, res) => {
       servingSize,
     } = req.body;
 
-    const food = await Food.findOne({
-      _id: id,
-      userId: user_id,
-      status: { $ne: 'Deleted' },
-    });
+    const food = await Food.findOne({ _id: id, status: { $ne: 'Deleted' } });
 
     if (!food) {
       return res.status(404).json({
@@ -189,10 +186,10 @@ const updateFood = async (req, res) => {
     if (protein != null && protein !== '') food.protein = Number(protein);
     if (carbs != null && carbs !== '') food.carbs = Number(carbs);
     if (fats != null && fats !== '') food.fats = Number(fats);
-    if (category && ['Protein', 'Carbs', 'Vegetables', 'Fruit', 'Fats', 'Other'].includes(category)) {
+    if (category && allowedCategories.includes(category)) {
       food.category = category;
     }
-    if (mealType && ['Breakfast', 'Lunch', 'Snack', 'Dinner', 'Other'].includes(mealType)) {
+    if (mealType && allowedMealTypes.includes(mealType)) {
       food.mealType = mealType;
     }
     if (servingSize != null) food.servingSize = servingSize.trim();
@@ -214,26 +211,19 @@ const updateFood = async (req, res) => {
   }
 };
 
-// 5. Soft delete food
-const deleteFood = async (req, res) => {
+// 5. Admin - Soft delete food
+const deleteFoodByAdmin = async (req, res) => {
   try {
-    const token = req.token;
-    const user_id = token?._id;
-
-    const user = await User.findById(user_id);
-    if (!user) {
+    const admin = await getValidAdmin(req.token);
+    if (!admin) {
       return res.status(400).json({
         success: false,
-        message: 'User not found',
+        message: 'Admin not found or inactive',
       });
     }
 
     const { id } = req.params;
-    const food = await Food.findOneAndUpdate(
-      { _id: id, userId: user_id },
-      { status: 'Deleted' },
-      { new: true }
-    ).lean();
+    const food = await Food.findByIdAndUpdate(id, { status: 'Deleted' }, { new: true }).lean();
 
     if (!food) {
       return res.status(404).json({
@@ -258,10 +248,10 @@ const deleteFood = async (req, res) => {
 };
 
 module.exports = {
-  addFood,
   getAllFoods,
   getFoodById,
-  updateFood,
-  deleteFood,
+  addFoodByAdmin,
+  updateFoodByAdmin,
+  deleteFoodByAdmin,
 };
 
