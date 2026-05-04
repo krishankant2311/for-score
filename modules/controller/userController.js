@@ -258,7 +258,7 @@ const signup = async (req, res, next) => {
     const hashedPassword = await bcrypt.hash(password, salt);
 
     const otp = generateSignupOtp();
-    const signupOtpExpiry = new Date(Date.now() + SIGNUP_OTP_TTL_MS);
+    const otpExpiresAt = new Date(Date.now() + SIGNUP_OTP_TTL_MS);
     const subject = process.env.SIGNUP_OTP_EMAIL_SUBJECT || 'Verify your Four Score account';
 
     if (existingUser) {
@@ -269,12 +269,11 @@ const signup = async (req, res, next) => {
             name: name.trim(),
             password: hashedPassword,
             ...profileUpdate,
-            signupOtp: otp,
-            signupOtpExpiry,
             securityToken: '',
-            'otp.otpValue': '',
-            'otp.otpExpiry': null,
+            'otp.otpValue': otp,
+            'otp.otpExpiry': otpExpiresAt,
           },
+          $unset: { signupOtp: '', signupOtpExpiry: '' },
         }
       );
     } else {
@@ -284,8 +283,7 @@ const signup = async (req, res, next) => {
         password: hashedPassword,
         status: 'Pending',
         ...profileUpdate,
-        signupOtp: otp,
-        signupOtpExpiry,
+        otp: { otpValue: otp, otpExpiry: otpExpiresAt },
       });
     }
 
@@ -343,14 +341,37 @@ const verifySignupOtp = async (req, res, next) => {
       });
     }
 
-    if (!user.signupOtpExpiry || user.signupOtpExpiry < new Date()) {
+    // Move legacy BSON keys (if any) into `otp`, then read from `otp` only.
+    let effectiveUser = user;
+    const rawOtp = await User.collection.findOne(
+      { _id: user._id },
+      { projection: { signupOtp: 1, signupOtpExpiry: 1 } }
+    );
+    if (rawOtp?.signupOtp && rawOtp?.signupOtpExpiry) {
+      await User.updateOne(
+        { _id: user._id },
+        {
+          $set: {
+            'otp.otpValue': String(rawOtp.signupOtp).trim(),
+            'otp.otpExpiry': rawOtp.signupOtpExpiry,
+          },
+          $unset: { signupOtp: '', signupOtpExpiry: '' },
+        }
+      );
+      effectiveUser = await User.findById(user._id);
+    }
+
+    const otpExpiry = effectiveUser?.otp?.otpExpiry;
+    const storedCode = String(effectiveUser?.otp?.otpValue || '').trim();
+
+    if (!otpExpiry || otpExpiry < new Date()) {
       return res.status(400).json({
         success: false,
         message: 'Verification code has expired. Sign up again to receive a new code.',
       });
     }
 
-    if (user.signupOtp !== otp) {
+    if (storedCode !== otp) {
       return res.status(400).json({
         success: false,
         message: 'Invalid verification code',
@@ -362,9 +383,10 @@ const verifySignupOtp = async (req, res, next) => {
       {
         $set: {
           status: 'Active',
-          signupOtp: '',
-          signupOtpExpiry: null,
+          'otp.otpValue': '',
+          'otp.otpExpiry': null,
         },
+        $unset: { signupOtp: '', signupOtpExpiry: '' },
       }
     );
 

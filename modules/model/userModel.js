@@ -23,15 +23,6 @@ const userSchema = new mongoose.Schema(
       otpValue: { type: String, default: '' },
       otpExpiry: { type: Date, default: null },
     },
-    /** Email signup verification (kept separate from password-reset otp fields). */
-    signupOtp: {
-      type: String,
-      default: '',
-    },
-    signupOtpExpiry: {
-      type: Date,
-      default: null,
-    },
     securityToken: {
       type: String,
       default: '',
