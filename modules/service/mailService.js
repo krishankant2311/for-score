@@ -52,12 +52,14 @@ const mailFrom = process.env.MAIL_FROM || process.env.MAIL_HOST || smtpUser;
 const tlsRejectUnauthorized =
   String(process.env.SMTP_TLS_REJECT_UNAUTHORIZED || "true").toLowerCase() === "true";
 const smtpHostIpv4 = process.env.SMTP_HOST_IPV4;
+const fallbackPort = Number(process.env.SMTP_FALLBACK_PORT || 465);
+const fallbackSecure = String(process.env.SMTP_FALLBACK_SECURE || "true").toLowerCase() === "true";
 
-const createTransport = (hostForConnection) =>
+const createTransport = ({ hostForConnection, port, secure }) =>
   nodemailer.createTransport({
     host: hostForConnection,
-    port: smtpPort,
-    secure: smtpSecure,
+    port,
+    secure,
     auth: {
       user: smtpUser,
       pass: smtpPass,
@@ -96,9 +98,6 @@ const resolveSmtpIpv4 = async () => {
  */
 const sendEmail = async (sub, to, html) => {
   try {
-    const smtpConnectionHost = await resolveSmtpIpv4();
-    const transport = createTransport(smtpConnectionHost);
-
     const mailOptions = {
       from: {
         name: "Four Score",
@@ -109,9 +108,33 @@ const sendEmail = async (sub, to, html) => {
       html,
     };
 
-    const info = await transport.sendMail(mailOptions);
+    const resolvedIpv4 = await resolveSmtpIpv4();
 
-    return info;
+    // Ordered failover attempts for cloud/network variability.
+    const attempts = [
+      { hostForConnection: smtpHost, port: smtpPort, secure: smtpSecure, label: "primary-host" },
+      { hostForConnection: resolvedIpv4, port: smtpPort, secure: smtpSecure, label: "primary-ipv4" },
+      { hostForConnection: smtpHost, port: fallbackPort, secure: fallbackSecure, label: "fallback-host" },
+      { hostForConnection: resolvedIpv4, port: fallbackPort, secure: fallbackSecure, label: "fallback-ipv4" },
+    ];
+
+    let lastError = null;
+
+    for (const attempt of attempts) {
+      try {
+        const transport = createTransport(attempt);
+        const info = await transport.sendMail(mailOptions);
+        if (attempt.label !== "primary-host") {
+          console.log(`Email sent using ${attempt.label}`);
+        }
+        return info;
+      } catch (err) {
+        lastError = err;
+        console.log(`Email attempt failed (${attempt.label}):`, err.message);
+      }
+    }
+
+    throw lastError || new Error("All SMTP attempts failed");
   } catch (error) {
     console.log("❌ Error! cannot send Email", error);
     return false;
