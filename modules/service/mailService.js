@@ -42,26 +42,30 @@
 const nodemailer = require("nodemailer");
 require("dotenv").config();
 
-/**
- * 🔧 TRANSPORT CONFIG
- */
+const smtpHost = process.env.SMTP_HOST || "smtp.gmail.com";
+const smtpPort = Number(process.env.SMTP_PORT || 587);
+const smtpSecure = String(process.env.SMTP_SECURE || "false").toLowerCase() === "true";
+const smtpUser = process.env.SMTP_USER || process.env.MAIL_HOST;
+const smtpPass = process.env.SMTP_PASS || process.env.MAIL_PASSWORD;
+const mailFrom = process.env.MAIL_FROM || process.env.MAIL_HOST || smtpUser;
+const tlsRejectUnauthorized =
+  String(process.env.SMTP_TLS_REJECT_UNAUTHORIZED || "true").toLowerCase() === "true";
+
 const transport = nodemailer.createTransport({
-  service: "gmail",
-
-  // 🔴 CHANGE #1
-  // Gmail ke liye 465 + secure true correct hota hai
-  port: 465,
-  secure: true,
-
+  host: smtpHost,
+  port: smtpPort,
+  secure: smtpSecure,
   auth: {
-    user: process.env.MAIL_HOST,     // example@gmail.com
-    pass: process.env.MAIL_PASSWORD, // Gmail App Password
+    user: smtpUser,
+    pass: smtpPass,
   },
-
-  // 🔴 CHANGE #2
-  // Self-signed certificate error fix
+  // Prevent hanging forever on restricted egress networks.
+  connectionTimeout: Number(process.env.SMTP_CONNECTION_TIMEOUT || 20000),
+  greetingTimeout: Number(process.env.SMTP_GREETING_TIMEOUT || 15000),
+  socketTimeout: Number(process.env.SMTP_SOCKET_TIMEOUT || 30000),
+  // Some hosting/proxy environments present non-standard cert chains.
   tls: {
-    rejectUnauthorized: false,
+    rejectUnauthorized: tlsRejectUnauthorized,
   },
 });
 
@@ -73,7 +77,7 @@ const sendEmail = async (sub, to, html) => {
     const mailOptions = {
       from: {
         name: "Four Score",
-        address: process.env.MAIL_HOST,
+        address: mailFrom,
       },
       to,
       subject: sub,
