@@ -22,6 +22,7 @@ const userSchema = new mongoose.Schema(
     otp: {
       otpValue: { type: String, default: '' },
       otpExpiry: { type: Date, default: null },
+      otpSentAt: { type: Date, default: null },
     },
     securityToken: {
       type: String,

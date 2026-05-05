@@ -8,6 +8,7 @@ const { getResetPasswordTemplate } = require('../service/resetPasswordTemplate')
 const { getSignupOtpTemplate } = require('../service/signupOtpTemplate');
 
 const SIGNUP_OTP_TTL_MS = 15 * 60 * 1000;
+const SIGNUP_OTP_RESEND_COOLDOWN_MS = 30 * 1000;
 
 const generateSignupOtp = () => String(Math.floor(100000 + Math.random() * 900000));
 
@@ -259,6 +260,7 @@ const signup = async (req, res, next) => {
 
     const otp = generateSignupOtp();
     const otpExpiresAt = new Date(Date.now() + SIGNUP_OTP_TTL_MS);
+    const otpSentAt = new Date();
     const subject = process.env.SIGNUP_OTP_EMAIL_SUBJECT || 'Verify your Four Score account';
 
     if (existingUser) {
@@ -272,6 +274,7 @@ const signup = async (req, res, next) => {
             securityToken: '',
             'otp.otpValue': otp,
             'otp.otpExpiry': otpExpiresAt,
+            'otp.otpSentAt': otpSentAt,
           },
           $unset: { signupOtp: '', signupOtpExpiry: '' },
         }
@@ -283,7 +286,7 @@ const signup = async (req, res, next) => {
         password: hashedPassword,
         status: 'Pending',
         ...profileUpdate,
-        otp: { otpValue: otp, otpExpiry: otpExpiresAt },
+        otp: { otpValue: otp, otpExpiry: otpExpiresAt, otpSentAt },
       });
     }
 
@@ -305,6 +308,91 @@ const signup = async (req, res, next) => {
       message: 'Verification code sent to your email',
       requiresEmailVerification: true,
       result: { email: emailTrimmed },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const resendSignupOtp = async (req, res, next) => {
+  try {
+    let { email } = req.body;
+    email = email?.trim()?.toLowerCase();
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email is required',
+      });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    if (user.status === 'Deleted') {
+      return res.status(400).json({
+        success: false,
+        message: 'This account has been deleted',
+      });
+    }
+
+    if (user.status !== 'Pending') {
+      return res.status(400).json({
+        success: false,
+        message: 'Account is already verified. Please sign in.',
+      });
+    }
+
+    const lastSentAt = user?.otp?.otpSentAt ? new Date(user.otp.otpSentAt) : null;
+    const now = Date.now();
+    if (lastSentAt) {
+      const elapsedMs = now - lastSentAt.getTime();
+      if (elapsedMs < SIGNUP_OTP_RESEND_COOLDOWN_MS) {
+        const retryAfterSeconds = Math.ceil(
+          (SIGNUP_OTP_RESEND_COOLDOWN_MS - elapsedMs) / 1000
+        );
+        return res.status(429).json({
+          success: false,
+          message: `Please wait ${retryAfterSeconds}s before requesting a new code.`,
+          retryAfterSeconds,
+        });
+      }
+    }
+
+    const otp = generateSignupOtp();
+    const otpExpiresAt = new Date(now + SIGNUP_OTP_TTL_MS);
+    const otpSentAt = new Date(now);
+
+    await User.updateOne(
+      { _id: user._id },
+      {
+        $set: {
+          'otp.otpValue': otp,
+          'otp.otpExpiry': otpExpiresAt,
+          'otp.otpSentAt': otpSentAt,
+        },
+      }
+    );
+
+    const subject = process.env.SIGNUP_OTP_EMAIL_SUBJECT || 'Verify your Four Score account';
+    const mailResult = await sendEmail(subject, email, getSignupOtpTemplate(otp));
+    if (!mailResult) {
+      return res.status(502).json({
+        success: false,
+        message: 'Could not send verification email. Please try again later.',
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Verification code resent to your email',
+      retryAfterSeconds: Math.ceil(SIGNUP_OTP_RESEND_COOLDOWN_MS / 1000),
+      result: { email },
     });
   } catch (err) {
     next(err);
@@ -1841,6 +1929,7 @@ const addTrainingLocation = async (req, res) => {
 module.exports = {
   signup,
   verifySignupOtp,
+  resendSignupOtp,
   login,
   forgotPassword,
   resetPassword,
