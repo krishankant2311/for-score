@@ -1,132 +1,97 @@
-const dns = require('dns').promises;
-const nodemailer = require('nodemailer');
-require('dotenv').config();
+// const nodemailer = require('nodemailer')
+// require('dotenv').config();
+
+// const transport = nodemailer.createTransport({
+//     service:"gmail",
+//     secure:true,
+//     auth:{
+//         user:process.env.MAIL_HOST,
+//         pass:process.env.MAIL_PASSWORD,
+//     }
+// });
+// const sendEmail = async (sub,to,html)=>{
+//     try {
+//         const mailOptions = {
+//             from:{
+//                 name:'Crawfish',
+//                 address:process.env.MAIL_HOST
+//             },
+//             subject:sub,
+//             to,
+//             html
+//         };
+//         transport.verify((error, succes) => {
+//             if(error)
+//                 console.log("error!!!! inside the helper", error)
+//             else{
+//                 console.log("server is ready to send email", succes)
+//             }
+//         });
+//         const emailSend = transport.sendMail(mailOptions);
+//          return emailSend;
+
+//     } catch (error) {
+//      console.log('Error! can not send Email',error);
+//      return error
+        
+//     }
+// };
+// module.exports = sendEmail;
+
+
+const nodemailer = require("nodemailer");
+require("dotenv").config();
 
 /**
- * Render blocks outbound SMTP (465/587) → use Resend over HTTPS (443).
- *
- * Render dashboard → Environment:
- *   RESEND_API_KEY=re_...
- *   MAIL_FROM=Four Score <noreply@your-verified-domain.com>
- *
- * Free Resend: verify a domain, or test with onboarding@resend.dev (delivery limits apply).
+ * 🔧 TRANSPORT CONFIG
  */
+const transport = nodemailer.createTransport({
+  service: "gmail",
 
-const isRenderDeploy = Boolean(
-  process.env.RENDER_EXTERNAL_URL ||
-    process.env.RENDER_SERVICE_NAME ||
-    process.env.RENDER,
-);
+  // 🔴 CHANGE #1
+  // Gmail ke liye 465 + secure true correct hota hai
+  port: 465,
+  secure: true,
 
-async function sendViaResend({ to, subject, html, text }) {
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) {
-    throw new Error('RESEND_API_KEY is missing');
-  }
+  auth: {
+    user: process.env.MAIL_HOST,     // example@gmail.com
+    pass: process.env.MAIL_PASSWORD, // Gmail App Password
+  },
 
-  const from =
-    process.env.MAIL_FROM?.trim() ||
-    'Four Score <onboarding@resend.dev>';
+  // 🔴 CHANGE #2
+  // Self-signed certificate error fix
+  tls: {
+    rejectUnauthorized: false,
+  },
+});
 
-  const payload = {
-    from,
-    to: [to],
-    subject,
-    ...(html ? { html } : {}),
-    ...(text ? { text } : {}),
-    ...(!html && !text ? { text: subject } : {}),
-  };
-
-  const res = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(payload),
-  });
-
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const msg =
-      (data && (data.message || data.error?.message || data.name)) ||
-      JSON.stringify(data) ||
-      `Resend HTTP ${res.status}`;
-    throw new Error(msg);
-  }
-  return data;
-}
-
-async function createSmtpTransport() {
-  const canonicalHost = process.env.SMTP_HOST || 'smtp.gmail.com';
-  const port = Number(process.env.SMTP_PORT || 465);
-  const secure = String(process.env.SMTP_SECURE || 'true') !== 'false';
-
-  const { address: ipv4 } = await dns.lookup(canonicalHost, { family: 4 });
-
-  return nodemailer.createTransport({
-    host: ipv4,
-    port,
-    secure,
-    auth: {
-      user: process.env.MAIL_HOST,
-      pass: process.env.MAIL_PASSWORD,
-    },
-    connectionTimeout: 25_000,
-    greetingTimeout: 15_000,
-    socketTimeout: 45_000,
-    tls: {
-      rejectUnauthorized: false,
-      servername: canonicalHost,
-    },
-  });
-}
-
-async function sendViaSmtp({ to, subject, html, text }) {
-  if (!process.env.MAIL_HOST || !process.env.MAIL_PASSWORD) {
-    throw new Error('MAIL_HOST and MAIL_PASSWORD required for SMTP (local dev).');
-  }
-
-  const transport = await createSmtpTransport();
+/**
+ * 📧 SEND EMAIL FUNCTION
+ */
+const sendEmail = async (sub, to, html) => {
   try {
-    return await transport.sendMail({
+    const mailOptions = {
       from: {
-        name: 'Four Score',
+        name: "Four Score",
         address: process.env.MAIL_HOST,
       },
       to,
-      subject,
-      html: html || text,
-    });
-  } finally {
-    transport.close();
-  }
-}
+      subject: sub,
+      html,
+    };
 
-const sendMail = async (opts) => {
-  try {
-    if (isRenderDeploy) {
-      if (!process.env.RESEND_API_KEY) {
-        const errMsg =
-          '[Email] This app runs on Render: outbound SMTP is blocked. ' +
-          'Add RESEND_API_KEY and MAIL_FROM in Render Environment (https://resend.com).';
-        console.error(errMsg);
-        throw new Error(errMsg);
-      }
-      return await sendViaResend(opts);
-    }
+    // 🔴 CHANGE #3
+    // await lagaya – pehle promise return ho raha tha
+    const info = await transport.sendMail(mailOptions);
 
-    if (process.env.RESEND_API_KEY) {
-      return await sendViaResend(opts);
-    }
-
-    return await sendViaSmtp(opts);
+    return info; // same return type
   } catch (error) {
-    console.log('Error! cannot send Email', error);
-    throw error;
+    console.log("❌ Error! cannot send Email", error);
+
+    // 🔴 CHANGE #4
+    // consistent false return on failure
+    return false;
   }
 };
 
-module.exports = {
-  sendMail,
-};
+module.exports = sendEmail;

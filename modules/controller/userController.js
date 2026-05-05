@@ -3,7 +3,7 @@ const { Admin } = require('../model/adminModel');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { generateAccessToken } = require('../../middleware/jwt');
-const { sendMail } = require('../service/mailService');
+const sendEmail = require('../service/mailService');
 const { getResetPasswordTemplate } = require('../service/resetPasswordTemplate');
 const { getSignupOtpTemplate } = require('../service/signupOtpTemplate');
 
@@ -287,12 +287,17 @@ const signup = async (req, res, next) => {
       });
     }
 
-    await sendMail({
-      to: emailTrimmed,
+    const mailResult = await sendEmail(
       subject,
-      text: `Your Four Score verification code is: ${otp}\n\nThis code is valid for 15 minutes.\n\nIf you did not sign up, you can ignore this email.`,
-      html: getSignupOtpTemplate(otp),
-    });
+      emailTrimmed,
+      getSignupOtpTemplate(otp),
+    );
+    if (!mailResult) {
+      return res.status(502).json({
+        success: false,
+        message: 'Could not send verification email. Please try again later.',
+      });
+    }
 
     const statusCode = existingUser ? 200 : 201;
     res.status(statusCode).json({
@@ -515,12 +520,27 @@ const forgotPassword = async (req, res, next) => {
     const resetLink = `${resetBaseUrl}?token=${encodeURIComponent(resetToken)}`;
 
     const subject = process.env.USER_RESET_EMAIL_SUBJECT || 'Reset your password';
-    await sendMail({
-      to: user.email,
+    const mailed = await sendEmail(
       subject,
-      text: `We received a request to reset your password.\n\nUse this link to continue (valid for 15 minutes):\n${resetLink}\n\nIf you did not request this, please ignore this email.`,
-      html: getResetPasswordTemplate(resetLink),
-    });
+      user.email,
+      getResetPasswordTemplate(resetLink),
+    );
+    if (!mailed) {
+      await User.updateOne(
+        { _id: user._id },
+        {
+          $set: {
+            securityToken: '',
+            'otp.otpValue': '',
+            'otp.otpExpiry': null,
+          },
+        },
+      ).catch(() => {});
+      return res.status(502).json({
+        success: false,
+        message: 'Could not send reset email. Please try again later.',
+      });
+    }
 
     return res.status(200).json({
       success: true,

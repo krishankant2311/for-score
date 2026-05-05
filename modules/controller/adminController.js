@@ -3,7 +3,7 @@ const User = require('../model/userModel');
 const bcrypt = require('bcryptjs');
 const { generateAccessToken } = require('../../middleware/jwt');
 const crypto = require('crypto');
-const { sendMail } = require('../service/mailService');
+const sendEmail = require('../service/mailService');
 
 const isPasswordValid = (password) => {
   if (password.length < 8) return false;
@@ -61,23 +61,18 @@ const forgotPassword = async (req, res) => {
       }
     );
 
-    const smtpReady =
-      Boolean(process.env.SMTP_HOST) &&
-      Boolean(process.env.SMTP_USER) &&
-      Boolean(process.env.SMTP_PASS);
+    const mailReady =
+      Boolean(process.env.MAIL_HOST) && Boolean(process.env.MAIL_PASSWORD);
 
     let emailed = false;
-    if (smtpReady) {
-      try {
-        await sendMail({
-          to: admin.email,
-          subject: process.env.ADMIN_RESET_EMAIL_SUBJECT || 'Password reset — Admin',
-          text: `Use this token in POST /api/admin/reset-password as "securityToken". Valid 15 minutes.\n\n${resetToken}`,
-          html: `<p>Use this code to reset your password (valid 15 minutes):</p><p><strong>${resetToken}</strong></p>`,
-        });
-        emailed = true;
-      } catch (mailErr) {
-        console.error('Admin forgot password mail error:', mailErr);
+    if (mailReady) {
+      const subject =
+        process.env.ADMIN_RESET_EMAIL_SUBJECT || 'Password reset — Admin';
+      const html = `<p>Use this code to reset your password (valid 15 minutes):</p><p><strong>${resetToken}</strong></p>`;
+      const result = await sendEmail(subject, admin.email, html);
+      emailed = Boolean(result);
+      if (!emailed) {
+        console.error('Admin forgot password: sendEmail returned failure');
       }
     }
 
