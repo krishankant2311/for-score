@@ -51,33 +51,54 @@ const smtpPass = process.env.SMTP_PASS || process.env.MAIL_PASSWORD;
 const mailFrom = process.env.MAIL_FROM || process.env.MAIL_HOST || smtpUser;
 const tlsRejectUnauthorized =
   String(process.env.SMTP_TLS_REJECT_UNAUTHORIZED || "true").toLowerCase() === "true";
+const smtpHostIpv4 = process.env.SMTP_HOST_IPV4;
 
-const transport = nodemailer.createTransport({
-  host: smtpHost,
-  port: smtpPort,
-  secure: smtpSecure,
-  auth: {
-    user: smtpUser,
-    pass: smtpPass,
-  },
-  // Prevent hanging forever on restricted egress networks.
-  connectionTimeout: Number(process.env.SMTP_CONNECTION_TIMEOUT || 20000),
-  greetingTimeout: Number(process.env.SMTP_GREETING_TIMEOUT || 15000),
-  socketTimeout: Number(process.env.SMTP_SOCKET_TIMEOUT || 30000),
-  // Some hosting/proxy environments present non-standard cert chains.
-  tls: {
-    rejectUnauthorized: tlsRejectUnauthorized,
-  },
-  // Render/network environments may fail IPv6 routes; force IPv4 SMTP connection.
-  family: 4,
-  lookup: (hostname, options, callback) => dns.lookup(hostname, { ...options, family: 4 }, callback),
-});
+const createTransport = (hostForConnection) =>
+  nodemailer.createTransport({
+    host: hostForConnection,
+    port: smtpPort,
+    secure: smtpSecure,
+    auth: {
+      user: smtpUser,
+      pass: smtpPass,
+    },
+    // Prevent hanging forever on restricted egress networks.
+    connectionTimeout: Number(process.env.SMTP_CONNECTION_TIMEOUT || 20000),
+    greetingTimeout: Number(process.env.SMTP_GREETING_TIMEOUT || 15000),
+    socketTimeout: Number(process.env.SMTP_SOCKET_TIMEOUT || 30000),
+    // Some hosting/proxy environments present non-standard cert chains.
+    tls: {
+      rejectUnauthorized: tlsRejectUnauthorized,
+      // Keep certificate validation mapped to original SMTP hostname.
+      servername: smtpHost,
+    },
+    // Hard-force IPv4 when Node still tries IPv6 first.
+    family: 4,
+  });
+
+const resolveSmtpIpv4 = async () => {
+  if (smtpHostIpv4) return smtpHostIpv4;
+
+  try {
+    const addresses = await dns.promises.resolve4(smtpHost);
+    if (Array.isArray(addresses) && addresses.length > 0) {
+      return addresses[0];
+    }
+  } catch (err) {
+    console.log("SMTP IPv4 resolve failed, falling back to hostname:", err.message);
+  }
+
+  return smtpHost;
+};
 
 /**
  * 📧 SEND EMAIL FUNCTION
  */
 const sendEmail = async (sub, to, html) => {
   try {
+    const smtpConnectionHost = await resolveSmtpIpv4();
+    const transport = createTransport(smtpConnectionHost);
+
     const mailOptions = {
       from: {
         name: "Four Score",
@@ -88,16 +109,11 @@ const sendEmail = async (sub, to, html) => {
       html,
     };
 
-    // 🔴 CHANGE #3
-    // await lagaya – pehle promise return ho raha tha
     const info = await transport.sendMail(mailOptions);
 
-    return info; // same return type
+    return info;
   } catch (error) {
     console.log("❌ Error! cannot send Email", error);
-
-    // 🔴 CHANGE #4
-    // consistent false return on failure
     return false;
   }
 };
