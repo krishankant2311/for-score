@@ -40,6 +40,7 @@
 
 
 const nodemailer = require("nodemailer");
+const dns = require("dns");
 require("dotenv").config();
 
 const smtpHost = process.env.SMTP_HOST || "smtp.gmail.com";
@@ -67,6 +68,9 @@ const transport = nodemailer.createTransport({
   tls: {
     rejectUnauthorized: tlsRejectUnauthorized,
   },
+  // Render/network environments may fail IPv6 routes; force IPv4 SMTP connection.
+  family: 4,
+  lookup: (hostname, options, callback) => dns.lookup(hostname, { ...options, family: 4 }, callback),
 });
 
 /**
