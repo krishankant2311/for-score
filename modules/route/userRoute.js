@@ -82,6 +82,7 @@ const {
 } = require('../controller/nutritionDashboardController');
 const {
   getAllFoods,
+  getAllFoodCategories,
   getFoodById,
 } = require('../controller/foodController');
 const {
@@ -188,6 +189,7 @@ router.get('/recovery-content/:id', upload.none(), verifyAccessToken, getRecover
 
 // Foods (admin catalog for users)
 router.get('/getall-foods', upload.none(), verifyAccessToken, getAllFoods);
+router.get('/get-all-food-categories', upload.none(), verifyAccessToken, getAllFoodCategories);
 router.get('/get-foods/:id', upload.none(), verifyAccessToken, getFoodById);
 
 // Feedback (user → send feedback)

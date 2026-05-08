@@ -43,6 +43,11 @@ const foodSchema = new mongoose.Schema(
       default: '',
       trim: true,
     },
+    image: {
+      type: String,
+      default: '',
+      trim: true,
+    },
     status: {
       type: String,
       enum: ['Active', 'Deleted'],

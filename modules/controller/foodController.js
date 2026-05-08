@@ -5,6 +5,28 @@ const User = require('../model/userModel');
 const allowedCategories = ['Protein', 'Carbs', 'Vegetables', 'Fruit', 'Fats', 'Other'];
 const allowedMealTypes = ['Breakfast', 'Lunch', 'Snack', 'Dinner', 'Other'];
 
+const buildPublicBaseUrl = (req) =>
+  process.env.PUBLIC_BASE_URL?.trim() || `${req.protocol}://${req.get('host')}`;
+
+const toPublicFileUrl = (req, storedPath) => {
+  if (!storedPath) return '';
+  const raw = String(storedPath).trim();
+  if (!raw) return '';
+  if (/^https?:\/\//i.test(raw)) return raw;
+
+  const normalized = raw.replace(/\\/g, '/');
+  const uploadsMarker = '/uploads/';
+  const idx = normalized.toLowerCase().lastIndexOf(uploadsMarker);
+  const publicPath = idx >= 0 ? normalized.slice(idx) : '';
+  if (!publicPath) return '';
+  return `${buildPublicBaseUrl(req)}${publicPath}`;
+};
+
+const withFoodImageUrl = (req, food) => {
+  if (!food) return food;
+  return { ...food, imageUrl: toPublicFileUrl(req, food.image) };
+};
+
 const getValidAdmin = async (token) => {
   const admin_id = token?._id;
   if (!admin_id) return null;
@@ -54,12 +76,13 @@ const addFoodByAdmin = async (req, res) => {
       category: category && allowedCategories.includes(category) ? category : 'Other',
       mealType: mealType && allowedMealTypes.includes(mealType) ? mealType : 'Other',
       servingSize: (servingSize || '').trim(),
+      image: req.file?.path || '',
     });
 
     return res.json({
       success: true,
       message: 'Food added successfully',
-      result: food,
+      result: withFoodImageUrl(req, food.toObject()),
     });
   } catch (err) {
     console.error(err);
@@ -98,7 +121,7 @@ const getAllFoods = async (req, res) => {
     return res.json({
       success: true,
       message: 'Foods fetched successfully',
-      result: foods,
+      result: foods.map((food) => withFoodImageUrl(req, food)),
     });
   } catch (err) {
     console.error(err);
@@ -110,7 +133,42 @@ const getAllFoods = async (req, res) => {
   }
 };
 
-// 3. User - Get single food by id
+// 3. User - Get all food categories
+const getAllFoodCategories = async (req, res) => {
+  try {
+    const token = req.token;
+    const user_id = token?._id;
+
+    const user = await User.findById(user_id);
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    const categories = await Food.distinct('category', { status: { $ne: 'Deleted' } });
+    const normalized = categories
+      .map((c) => String(c || '').trim())
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b));
+
+    return res.json({
+      success: true,
+      message: 'Food categories fetched successfully',
+      result: normalized,
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: err.message,
+    });
+  }
+};
+
+// 4. User - Get single food by id
 const getFoodById = async (req, res) => {
   try {
     const token = req.token;
@@ -137,7 +195,7 @@ const getFoodById = async (req, res) => {
     return res.json({
       success: true,
       message: 'Food fetched successfully',
-      result: food,
+      result: withFoodImageUrl(req, food),
     });
   } catch (err) {
     console.error(err);
@@ -149,7 +207,7 @@ const getFoodById = async (req, res) => {
   }
 };
 
-// 4. Admin - Update food
+// 5. Admin - Update food
 const updateFoodByAdmin = async (req, res) => {
   try {
     const admin = await getValidAdmin(req.token);
@@ -193,13 +251,14 @@ const updateFoodByAdmin = async (req, res) => {
       food.mealType = mealType;
     }
     if (servingSize != null) food.servingSize = servingSize.trim();
+    if (req.file?.path) food.image = req.file.path;
 
     await food.save();
 
     return res.json({
       success: true,
       message: 'Food updated successfully',
-      result: food,
+      result: withFoodImageUrl(req, food.toObject()),
     });
   } catch (err) {
     console.error(err);
@@ -211,7 +270,7 @@ const updateFoodByAdmin = async (req, res) => {
   }
 };
 
-// 5. Admin - Soft delete food
+// 6. Admin - Soft delete food
 const deleteFoodByAdmin = async (req, res) => {
   try {
     const admin = await getValidAdmin(req.token);
@@ -249,6 +308,7 @@ const deleteFoodByAdmin = async (req, res) => {
 
 module.exports = {
   getAllFoods,
+  getAllFoodCategories,
   getFoodById,
   addFoodByAdmin,
   updateFoodByAdmin,
