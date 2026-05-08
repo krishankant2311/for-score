@@ -1521,13 +1521,27 @@ const addWorkoutPreferences = async (req, res) => {
       });
     }
 
-    const allowed = ['CROSSFIT', 'PILATES', 'WEIGHTLIFTING', 'HIIT', 'YOGA'];
+    const allowed = [
+      'CROSSFIT',
+      'PILATES',
+      'WEIGHTLIFTING',
+      'HIIT',
+      'YOGA',
+      'FUNCTIONALMOVEMENT',
+      'FUNCTIONAL_MOVEMENT',
+      'QUICKIES',
+      'PRENATAL',
+      'POSTPARTUM',
+      'PRENATAL/POSTPARTUM',
+      'PRENATAL_POSTPARTUM',
+    ];
     const raw = Array.isArray(workoutPreferences) ? workoutPreferences : [workoutPreferences];
     const value = raw.map((p) => String(p).toUpperCase()).filter((p) => allowed.includes(p));
     if (value.length === 0) {
       return res.status(400).json({
         success: false,
-        message: 'Valid workoutPreferences required (CROSSFIT, PILATES, WEIGHTLIFTING, HIIT, YOGA). Choose one or more.',
+        message:
+          'Valid workoutPreferences required (CROSSFIT, PILATES, WEIGHTLIFTING, HIIT, YOGA, FUNCTIONALMOVEMENT, QUICKIES, PRENATAL/POSTPARTUM). Choose one or more.',
       });
     }
 
@@ -1574,12 +1588,13 @@ const addFitnessTarget = async (req, res) => {
       });
     }
 
-    const allowed = ['WEIGHTLOSS', 'MUSCLEGAIN', 'STRENGTH', 'GENRALFITNESS'];
+    const allowed = ['WEIGHTLOSS', 'MUSCLEGAIN', 'STRENGTH', 'GENRALFITNESS', 'GENERALFITNESS'];
     const value = String(fitnessTarget).toUpperCase();
     if (!allowed.includes(value)) {
       return res.status(400).json({
         success: false,
-        message: 'Valid fitnessTarget is required (WEIGHTLOSS, MUSCLEGAIN, STRENGTH, GENRALFITNESS)',
+        message:
+          'Valid fitnessTarget is required (WEIGHTLOSS, MUSCLEGAIN, STRENGTH, GENERALFITNESS)',
       });
     }
 
@@ -1926,6 +1941,60 @@ const addTrainingLocation = async (req, res) => {
   }
 };
 
+// 14. saveOneSignalPlayerId – token se user validate, phir OneSignal player id save/update
+const saveOneSignalPlayerId = async (req, res) => {
+  try {
+    const token = req.token;
+    const user_id = token?._id;
+    const { playerId } = req.body;
+
+    if (!playerId || !String(playerId).trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'playerId is required',
+      });
+    }
+
+    const value = String(playerId).trim();
+    const user = await User.findById(user_id);
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    user.oneSignalPlayerId = value;
+    const existing = Array.isArray(user.oneSignalPlayerIds)
+      ? user.oneSignalPlayerIds.map((id) => String(id))
+      : [];
+    if (!existing.includes(value)) {
+      existing.push(value);
+    }
+    user.oneSignalPlayerIds = existing;
+    await user.save();
+
+    const result = user.toObject();
+    delete result.password;
+
+    return res.json({
+      success: true,
+      message: 'OneSignal player id saved successfully',
+      result: {
+        oneSignalPlayerId: result.oneSignalPlayerId,
+        oneSignalPlayerIds: result.oneSignalPlayerIds,
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: err.message,
+    });
+  }
+};
+
 module.exports = {
   signup,
   verifySignupOtp,
@@ -1949,6 +2018,7 @@ module.exports = {
   addWorkoutFrequency,
   addLastWorkout,
   addTrainingLocation,
+  saveOneSignalPlayerId,
   changeUserPassword,
   getAllActiveUsersByAdmin,
   getAllBlockedUsersByAdmin,

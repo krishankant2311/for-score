@@ -205,6 +205,15 @@ router.post(
   ]),
   updateProgram
 );
+router.put(
+  '/programs/:id',
+  verifyAccessToken,
+  uploadExerciseMedia.fields([
+    { name: 'video', maxCount: 1 },
+    { name: 'media', maxCount: 1 },
+  ]),
+  updateProgram
+);
 router.post('/delete-program/:id', upload.none(), verifyAccessToken, deleteProgram);
 
 // Privacy Policy (Admin CRUD)

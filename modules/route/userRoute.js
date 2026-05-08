@@ -26,6 +26,7 @@ const {
   addWorkoutFrequency,
   addLastWorkout,
   addTrainingLocation,
+  saveOneSignalPlayerId,
 } = require('../controller/userController');
 const {
   getAllProgramsByUser,
@@ -146,6 +147,7 @@ router.post('/profile/goal-duration', upload.none(), verifyAccessToken, addGoalD
 router.post('/profile/workout-frequency', upload.none(), verifyAccessToken, addWorkoutFrequency);
 router.post('/profile/last-workout', upload.none(), verifyAccessToken, addLastWorkout);
 router.post('/profile/training-location', upload.none(), verifyAccessToken, addTrainingLocation);
+router.post('/profile/player-id', upload.none(), verifyAccessToken, saveOneSignalPlayerId);
 
 // Programs for user (only Active/Draft, not Deleted)
 router.get('/programs', upload.none(), verifyAccessToken, getAllProgramsByUser);

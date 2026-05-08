@@ -3,15 +3,25 @@ const https = require('https');
 const ONESIGNAL_API_HOST = 'onesignal.com';
 const ONESIGNAL_API_PATH = '/api/v1/notifications';
 
+const toBool = (value, defaultValue = true) => {
+  if (value === undefined || value === null || value === '') return defaultValue;
+  const v = String(value).trim().toLowerCase();
+  if (['true', '1', 'yes'].includes(v)) return true;
+  if (['false', '0', 'no'].includes(v)) return false;
+  return defaultValue;
+};
+
 const postJson = (path, body, headers = {}) =>
   new Promise((resolve, reject) => {
     const payload = JSON.stringify(body);
+    const rejectUnauthorized = toBool(process.env.ONESIGNAL_TLS_REJECT_UNAUTHORIZED, true);
 
     const req = https.request(
       {
         hostname: ONESIGNAL_API_HOST,
         path,
         method: 'POST',
+        rejectUnauthorized,
         headers: {
           'Content-Type': 'application/json; charset=utf-8',
           'Content-Length': Buffer.byteLength(payload),
@@ -49,7 +59,7 @@ const sendOneSignalNotification = async ({
   title,
   message,
   data,
-  externalUserIds,
+  playerIds,
   sendToAll,
 }) => {
   const appId = process.env.ONESIGNAL_APP_ID;
@@ -71,7 +81,7 @@ const sendOneSignalNotification = async ({
   if (sendToAll) {
     payload.included_segments = ['Subscribed Users'];
   } else {
-    payload.include_external_user_ids = (externalUserIds || []).map(String);
+    payload.include_player_ids = (playerIds || []).map(String);
   }
 
   return await postJson(ONESIGNAL_API_PATH, payload, {

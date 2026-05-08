@@ -111,6 +111,15 @@ const userSchema = new mongoose.Schema(
       ref: 'Plan',
       default: null,
     },
+    oneSignalPlayerId: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    oneSignalPlayerIds: {
+      type: [String],
+      default: [],
+    },
     status: {
       type: String,
       enum: ['Active', 'Blocked', 'Deleted', 'Pending'],

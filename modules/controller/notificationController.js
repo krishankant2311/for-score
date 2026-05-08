@@ -26,7 +26,7 @@ const getValidUser = async (token) => {
 // Body:
 // - title (required)
 // - message (required)
-// - sendToAll (boolean) OR userIds (array of user _id)
+// - sendToAll (boolean) OR playerIds (array of OneSignal player_id)
 // - data (object, optional)
 const sendNotificationByAdmin = async (req, res) => {
   try {
@@ -38,7 +38,7 @@ const sendNotificationByAdmin = async (req, res) => {
       });
     }
 
-    const { title, message, sendToAll, userIds, data } = req.body;
+    const { title, message, sendToAll, playerIds, data } = req.body;
 
     if (!title?.trim() || !message?.trim()) {
       return res.status(400).json({
@@ -48,21 +48,20 @@ const sendNotificationByAdmin = async (req, res) => {
     }
 
     const toAll = !!sendToAll;
-    const ids = Array.isArray(userIds) ? userIds.map(String).filter(Boolean) : [];
+    const ids = Array.isArray(playerIds) ? playerIds.map(String).filter(Boolean) : [];
 
     if (!toAll && !ids.length) {
       return res.status(400).json({
         success: false,
-        message: 'sendToAll=true or userIds[] is required',
+        message: 'sendToAll=true or playerIds[] is required',
       });
     }
 
-    // We assume app sets OneSignal external_user_id = user._id (string)
     const onesignalResp = await sendOneSignalNotification({
       title: title.trim(),
       message: message.trim(),
       data: data && typeof data === 'object' ? data : {},
-      externalUserIds: ids,
+      playerIds: ids,
       sendToAll: toAll,
     });
 

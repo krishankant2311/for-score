@@ -28,6 +28,42 @@ const programSchema = new mongoose.Schema(
       default: '',
       trim: true,
     },
+    /** Stable program identifier for rule-based recommendation */
+    programCode: {
+      type: String,
+      default: '',
+      trim: true,
+      lowercase: true,
+    },
+    /** Categorization helpers for recommendation rules */
+    tags: {
+      type: [String],
+      default: [],
+    },
+    isGymRequired: {
+      type: Boolean,
+      default: false,
+    },
+    isHomeFriendly: {
+      type: Boolean,
+      default: false,
+    },
+    isQuickProgram: {
+      type: Boolean,
+      default: false,
+    },
+    isPrenatalProgram: {
+      type: Boolean,
+      default: false,
+    },
+    minSessionMinutes: {
+      type: Number,
+      default: null,
+    },
+    maxSessionMinutes: {
+      type: Number,
+      default: null,
+    },
     /** Legacy string (e.g. "5"); kept for filters / older clients */
     frequency: {
       type: String,

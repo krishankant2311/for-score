@@ -30,11 +30,39 @@ const parseStringArray = (value) => {
   return [];
 };
 
+const parseCsvString = (value) => {
+  if (typeof value !== 'string') return [];
+  return value
+    .split(',')
+    .map((v) => String(v).trim())
+    .filter(Boolean);
+};
+
 const parseOptionalNumber = (value) => {
   if (value === '' || value == null) return null;
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
 };
+
+const parseOptionalBoolean = (value) => {
+  if (value === '' || value == null) return null;
+  if (typeof value === 'boolean') return value;
+  const normalized = String(value).trim().toLowerCase();
+  if (['true', '1', 'yes'].includes(normalized)) return true;
+  if (['false', '0', 'no'].includes(normalized)) return false;
+  return null;
+};
+
+const normalizeTagList = (value) => {
+  const arr = parseStringArray(value);
+  return arr.map((item) => item.toLowerCase());
+};
+
+const normalizeProgramCode = (value) =>
+  String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_');
 
 const isNonEmptyObject = (value) => {
   if (!value || typeof value !== 'object') return false;
@@ -152,6 +180,14 @@ const addProgram = async (req, res) => {
       equipment,
       quickStats,
       videoPath,
+      programCode,
+      tags,
+      isGymRequired,
+      isHomeFriendly,
+      isQuickProgram,
+      isPrenatalProgram,
+      minSessionMinutes,
+      maxSessionMinutes,
     } = req.body;
     const { weekGrid, exerciseLibrary, recoveryProtocol } = pickProgramStepPayload(req.body);
 
@@ -208,6 +244,10 @@ const addProgram = async (req, res) => {
     const daysPerWeekNum = parseOptionalNumber(daysPerWeek);
     const avgSessionNum = parseOptionalNumber(avgSessionMinutes);
     const equipmentArr = parseStringArray(equipment);
+    const minSessionNum = parseOptionalNumber(minSessionMinutes);
+    const maxSessionNum = parseOptionalNumber(maxSessionMinutes);
+    const tagsArr = normalizeTagList(tags);
+    const programCodeVal = normalizeProgramCode(programCode || programName);
     const freqStr =
       (frequency && String(frequency).trim()) ||
       (daysPerWeekNum != null ? String(daysPerWeekNum) : '');
@@ -222,7 +262,15 @@ const addProgram = async (req, res) => {
       durationWeeks: durationWeeksNum,
       daysPerWeek: daysPerWeekNum,
       avgSessionMinutes: avgSessionNum,
+      minSessionMinutes: minSessionNum,
+      maxSessionMinutes: maxSessionNum,
       equipment: equipmentArr,
+      programCode: programCodeVal,
+      tags: tagsArr,
+      isGymRequired: parseOptionalBoolean(isGymRequired) === true,
+      isHomeFriendly: parseOptionalBoolean(isHomeFriendly) === true,
+      isQuickProgram: parseOptionalBoolean(isQuickProgram) === true,
+      isPrenatalProgram: parseOptionalBoolean(isPrenatalProgram) === true,
       subHeader: String(subHeader).trim(),
       overview: String(overview).trim(),
       whatsInside: parseStringArray(whatsInside),
@@ -449,6 +497,14 @@ const updateProgram = async (req, res) => {
       equipment,
       quickStats,
       videoPath,
+      programCode,
+      tags,
+      isGymRequired,
+      isHomeFriendly,
+      isQuickProgram,
+      isPrenatalProgram,
+      minSessionMinutes,
+      maxSessionMinutes,
     } = req.body;
     const { weekGrid, exerciseLibrary, recoveryProtocol } = pickProgramStepPayload(req.body);
 
@@ -483,8 +539,31 @@ const updateProgram = async (req, res) => {
       program.daysPerWeek = parseOptionalNumber(daysPerWeek);
     if (avgSessionMinutes !== undefined)
       program.avgSessionMinutes = parseOptionalNumber(avgSessionMinutes);
+    if (minSessionMinutes !== undefined)
+      program.minSessionMinutes = parseOptionalNumber(minSessionMinutes);
+    if (maxSessionMinutes !== undefined)
+      program.maxSessionMinutes = parseOptionalNumber(maxSessionMinutes);
     if (equipment != null)
       program.equipment = parseStringArray(equipment);
+    if (programCode != null && String(programCode).trim() !== '')
+      program.programCode = normalizeProgramCode(programCode);
+    if (tags != null) program.tags = normalizeTagList(tags);
+    if (isGymRequired !== undefined) {
+      const parsed = parseOptionalBoolean(isGymRequired);
+      if (parsed != null) program.isGymRequired = parsed;
+    }
+    if (isHomeFriendly !== undefined) {
+      const parsed = parseOptionalBoolean(isHomeFriendly);
+      if (parsed != null) program.isHomeFriendly = parsed;
+    }
+    if (isQuickProgram !== undefined) {
+      const parsed = parseOptionalBoolean(isQuickProgram);
+      if (parsed != null) program.isQuickProgram = parsed;
+    }
+    if (isPrenatalProgram !== undefined) {
+      const parsed = parseOptionalBoolean(isPrenatalProgram);
+      if (parsed != null) program.isPrenatalProgram = parsed;
+    }
     const uploadedVideoPath = getProgramVideoPathFromRequest(req);
     if (uploadedVideoPath) {
       program.videoPath = uploadedVideoPath;
@@ -678,9 +757,12 @@ const getRecommendedProgramByUserProfile = async (req, res) => {
 
     const location = (user.trainingLocation || '').toLowerCase(); // home_workouts | gym_training
     const userSkill = (user.workoutSkillLevel || '').toUpperCase(); // BEGINNER | INTERMEDIATE | ADVANCED
-    const preference = (user.workoutPreferences || '').toLowerCase();
+    const preferenceRaw = (user.workoutPreferences || '').toLowerCase();
+    const preferenceItems = parseCsvString(user.workoutPreferences).map((x) => x.toLowerCase());
+    const allPreferenceTerms = [...new Set([preferenceRaw, ...preferenceItems].filter(Boolean))];
     const target = (user.fitnessTarget || '').toUpperCase();
     const frequency = Number(user.workoutFrequency || 0);
+    const workoutDuration = Number(user.workoutDuration || 0);
 
     const activePrograms = await Program.find({ status: 'Active' }).lean();
     if (!activePrograms.length) {
@@ -690,9 +772,16 @@ const getRecommendedProgramByUserProfile = async (req, res) => {
       });
     }
 
+    const hasTerm = (...terms) =>
+      terms.some((term) => allPreferenceTerms.some((pref) => pref.includes(term)));
+
     // Rule 1: Safety flag (Prenatal/Postpartum highest priority)
-    if (preference.includes('prenatal') || preference.includes('postpartum')) {
-      const prenatal = activePrograms.find((p) => /prenatal|postpartum/i.test(p.programName));
+    if (hasTerm('prenatal', 'postpartum')) {
+      const prenatal = activePrograms.find(
+        (p) =>
+          p.isPrenatalProgram === true ||
+          /prenatal|postpartum|radiant forge/i.test(`${p.programName} ${p.programCode || ''}`)
+      );
       if (prenatal) {
         return res.json({
           success: true,
@@ -705,11 +794,14 @@ const getRecommendedProgramByUserProfile = async (req, res) => {
 
     // Rule 2: Quickie priority
     if (
-      preference.includes('quick') ||
-      preference.includes('limited time') ||
-      preference.includes('quickies')
+      workoutDuration > 0 && workoutDuration < 20 ||
+      hasTerm('quick', 'quickies', 'limited time', 'express')
     ) {
-      const quickie = activePrograms.find((p) => /15-minute quick hits|quick hits/i.test(p.programName));
+      const quickie = activePrograms.find(
+        (p) =>
+          p.isQuickProgram === true ||
+          /15[- ]?minute|quick hits|quickies|express/i.test(`${p.programName} ${p.programCode || ''}`)
+      );
       if (quickie) {
         return res.json({
           success: true,
@@ -734,20 +826,22 @@ const getRecommendedProgramByUserProfile = async (req, res) => {
     else if (target === 'STRENGTH') goalTerms.push('strength', 'weight lifting');
     else goalTerms.push('general fitness', 'functional', 'core', 'flow');
 
-    if (preference) {
-      goalTerms.push(preference);
+    if (allPreferenceTerms.length) {
+      goalTerms.push(...allPreferenceTerms);
     }
 
     let candidates = activePrograms.filter((p) => {
       const loc = (p.locationTag || '').toLowerCase();
       const pSkill = p.workoutSkillLevel;
-      const pGoal = `${p.primaryGoal || ''} ${p.workoutPreference || ''}`.toLowerCase();
+      const pGoal = `${p.primaryGoal || ''} ${p.workoutPreference || ''} ${(p.tags || []).join(' ')}`.toLowerCase();
+      const gymRequired = p.isGymRequired === true || /gym required|commercial gym required/i.test(loc);
+      const homeFriendly = p.isHomeFriendly === true || /home|anywhere|no equipment|home friendly/.test(loc);
 
       const locationOk =
         location === 'home_workouts'
-          ? loc.includes('home') || loc.includes('any')
+          ? homeFriendly && !gymRequired
           : location === 'gym_training'
-          ? loc.includes('gym') || loc.includes('any')
+          ? loc.includes('gym') || loc.includes('any') || gymRequired
           : true;
 
       const skillOk = allowedSkills.includes(pSkill);
@@ -761,7 +855,7 @@ const getRecommendedProgramByUserProfile = async (req, res) => {
       candidates = candidates.filter(
         (p) =>
           !/elite strength|functional strength and mastery|crossfit|shred to stage/i.test(
-            p.programName
+            `${p.programName} ${p.programCode || ''}`
           )
       );
     }
@@ -806,9 +900,24 @@ const getRecommendedProgramByUserProfile = async (req, res) => {
       });
     }
 
-    const recommended = candidates.sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    )[0];
+    const scoreProgram = (p) => {
+      let score = 0;
+      const nameGoalBlob = `${p.programName || ''} ${p.primaryGoal || ''} ${p.workoutPreference || ''} ${(p.tags || []).join(' ')}`.toLowerCase();
+      if (allowedSkills.includes(p.workoutSkillLevel)) score += 3;
+      if (goalTerms.some((term) => nameGoalBlob.includes(String(term).toLowerCase()))) score += 4;
+      if (location === 'home_workouts' && (p.isHomeFriendly || /home|anywhere|no equipment/i.test(p.locationTag || ''))) score += 3;
+      if (location === 'gym_training' && (p.isGymRequired || /gym/i.test(p.locationTag || ''))) score += 3;
+      if (frequency && p.daysPerWeek && Number(p.daysPerWeek) === frequency) score += 2;
+      if (frequency && p.frequency && String(p.frequency).includes(String(frequency))) score += 1;
+      return score;
+    };
+
+    const recommended = candidates
+      .map((p) => ({ p, score: scoreProgram(p) }))
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return new Date(b.p.createdAt).getTime() - new Date(a.p.createdAt).getTime();
+      })[0]?.p;
 
     return res.json({
       success: true,
