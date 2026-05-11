@@ -35,7 +35,7 @@ const {
 } = require('../controller/programController');
 const {
   selectActiveProgram,
-  getActiveProgramForUser,
+  getSelectedProgramForUser,
   getTodayWorkout,
 } = require('../controller/todayWorkoutController');
 const {
@@ -159,7 +159,8 @@ router.post('/profile/player-id', upload.none(), verifyAccessToken, saveOneSigna
 router.get('/programs', upload.none(), verifyAccessToken, getAllProgramsByUser);
 router.get('/programs/recommended/me', upload.none(), verifyAccessToken, getRecommendedProgramByUserProfile);
 router.post('/programs/active', upload.none(), verifyAccessToken, selectActiveProgram);
-router.get('/programs/active', upload.none(), verifyAccessToken, getActiveProgramForUser);
+router.get('/programs/selected', upload.none(), verifyAccessToken, getSelectedProgramForUser);
+router.get('/programs/active', upload.none(), verifyAccessToken, getSelectedProgramForUser);
 router.get('/programs/:id', upload.none(), verifyAccessToken, getProgramByUserAndId);
 
 // Measurements (user-scoped: add, get all, get by id, update, soft delete)

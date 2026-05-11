@@ -273,7 +273,8 @@ const selectActiveProgram = async (req, res) => {
   }
 };
 
-const getActiveProgramForUser = async (req, res) => {
+/** User’s chosen program (full document for weekGrid / exerciseLibrary) */
+const getSelectedProgramForUser = async (req, res) => {
   try {
     const user_id = req.token?._id;
     const user = await User.findById(user_id).select('activeProgramId programStartedAt').lean();
@@ -284,7 +285,7 @@ const getActiveProgramForUser = async (req, res) => {
     if (!user.activeProgramId) {
       return res.json({
         success: true,
-        message: 'No active program set',
+        message: 'No program selected',
         result: null,
       });
     }
@@ -292,24 +293,25 @@ const getActiveProgramForUser = async (req, res) => {
     const program = await Program.findOne({
       _id: user.activeProgramId,
       status: 'Active',
-    })
-      .select(
-        'programName subHeader overview durationWeeks daysPerWeek avgSessionMinutes workoutSkillLevel status'
-      )
-      .lean();
+    }).lean();
 
     if (!program) {
       return res.json({
         success: true,
-        message: 'Active program reference is stale',
-        result: null,
+        message: 'Selected program is no longer available',
+        result: {
+          activeProgramId: user.activeProgramId,
+          programStartedAt: user.programStartedAt,
+          program: null,
+        },
       });
     }
 
     return res.json({
       success: true,
-      message: 'Active program fetched',
+      message: 'Selected program fetched successfully',
       result: {
+        activeProgramId: user.activeProgramId,
         programStartedAt: user.programStartedAt,
         program,
       },
@@ -457,6 +459,8 @@ const getTodayWorkout = async (req, res) => {
 
 module.exports = {
   selectActiveProgram,
-  getActiveProgramForUser,
+  getSelectedProgramForUser,
+  /** @deprecated alias — use GET /programs/selected */
+  getActiveProgramForUser: getSelectedProgramForUser,
   getTodayWorkout,
 };
