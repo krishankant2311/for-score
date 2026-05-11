@@ -351,7 +351,11 @@ const getAllPrograms = async (req, res) => {
     const locationTag = (req.query.locationTag || '').trim();
     const workoutSkillLevel = req.query.workoutSkillLevel;
     const workoutPreference = (req.query.workoutPreference || '').trim();
-    const statusFilter = (req.query.status || 'all').toLowerCase();
+    const statusRaw = req.query.status;
+    const statusFilter =
+      statusRaw === undefined || statusRaw === null || String(statusRaw).trim() === ''
+        ? 'all'
+        : String(statusRaw).trim().toLowerCase();
 
     const query = {};
     if (search) {
@@ -389,8 +393,8 @@ const getAllPrograms = async (req, res) => {
     else if (statusFilter === 'draft') query.status = 'Draft';
     else if (statusFilter === 'deleted') query.status = 'Deleted';
     else {
-      // default `all` — hide soft-deleted; use ?status=deleted to audit trash
-      query.status = { $ne: 'Deleted' };
+      // default (all / unknown) — only non-deleted statuses; use ?status=deleted for trash
+      query.status = { $in: ['Active', 'Inactive', 'Draft'] };
     }
 
     const [programs, total] = await Promise.all([
