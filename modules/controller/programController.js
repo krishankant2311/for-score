@@ -388,6 +388,10 @@ const getAllPrograms = async (req, res) => {
     else if (statusFilter === 'inactive') query.status = 'Inactive';
     else if (statusFilter === 'draft') query.status = 'Draft';
     else if (statusFilter === 'deleted') query.status = 'Deleted';
+    else {
+      // default `all` — hide soft-deleted; use ?status=deleted to audit trash
+      query.status = { $ne: 'Deleted' };
+    }
 
     const [programs, total] = await Promise.all([
       Program.find(query)
