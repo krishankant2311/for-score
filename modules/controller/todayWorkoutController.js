@@ -291,6 +291,11 @@ const buildExercisePayloadForUser = (req, slot, { includeInstructions } = {}) =>
     difficultyLevel: slot.difficultyLevel,
     muscles_involved: slot.muscles,
     musclesInvolved: slot.muscles,
+    target_muscles: slot.muscles,
+    targetMuscles: slot.muscles,
+    target_muscles_text: Array.isArray(slot.muscles) && slot.muscles.length
+      ? slot.muscles.join(', ')
+      : '',
     listSummaryLine: listLine,
     hasVideo,
     notes: slot.notes,

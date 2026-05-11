@@ -2,8 +2,33 @@ const { Admin } = require('../model/adminModel');
 const User = require('../model/userModel');
 const WorkoutLog = require('../model/workoutLogModel');
 const MealLog = require('../model/mealLogModel');
-const Exercise = require('../model/exerciseModel');
+const Program = require('../model/programModel');
 const NutritionItem = require('../model/nutritionItemModel');
+
+const countExercisesInLibrary = (lib) => {
+  if (!lib || typeof lib !== 'object') return 0;
+  let n = 0;
+  for (const v of Object.values(lib)) {
+    if (Array.isArray(v)) n += v.length;
+  }
+  return n;
+};
+
+const aggregateExerciseLibraryBuckets = async () => {
+  const programs = await Program.find({ status: 'Active' }).select('exerciseLibrary').lean();
+  const map = new Map();
+  for (const p of programs) {
+    const lib = p.exerciseLibrary;
+    if (!lib || typeof lib !== 'object') continue;
+    for (const [key, arr] of Object.entries(lib)) {
+      if (!Array.isArray(arr)) continue;
+      map.set(key, (map.get(key) || 0) + arr.length);
+    }
+  }
+  return [...map.entries()]
+    .map(([label, value]) => ({ label, value }))
+    .sort((a, b) => b.value - a.value);
+};
 
 const getValidAdmin = async (token) => {
   const admin_id = token?._id;
@@ -121,11 +146,19 @@ const getAdminDashboard = async (req, res) => {
       status: 'Active',
       ...dateMatch('date', from, to),
     });
-    const totalExercisesPromise = Exercise.countDocuments({ status: 'Active' });
-    const exercisesAddedInRangePromise = Exercise.countDocuments({
-      status: 'Active',
-      ...dateMatch('createdAt', from, to),
-    });
+    const embeddedExerciseStatsPromise = (async () => {
+      const allPrograms = await Program.find({ status: 'Active' }).select('exerciseLibrary createdAt').lean();
+      const totalExercises = allPrograms.reduce((s, p) => s + countExercisesInLibrary(p.exerciseLibrary), 0);
+      let exercisesAddedInRange = totalExercises;
+      if (from && to) {
+        exercisesAddedInRange = allPrograms.reduce((s, p) => {
+          const cAt = p.createdAt ? new Date(p.createdAt) : null;
+          if (!cAt || cAt < from || cAt >= to) return s;
+          return s + countExercisesInLibrary(p.exerciseLibrary);
+        }, 0);
+      }
+      return { totalExercises, exercisesAddedInRange };
+    })();
     const nutritionLogsTodayPromise = MealLog.countDocuments({
       status: 'Active',
       ...dateMatch('date', from, to),
@@ -156,8 +189,7 @@ const getAdminDashboard = async (req, res) => {
       totalActiveUsers,
       activeToday,
       exercisesToday,
-      totalExercises,
-      exercisesAddedInRange,
+      { totalExercises, exercisesAddedInRange },
       nutritionLogsToday,
       totalNutritionItems,
       nutritionItemsAddedInRange,
@@ -167,8 +199,7 @@ const getAdminDashboard = async (req, res) => {
         totalActiveUsersPromise,
         activeTodayPromise,
         exercisesTodayPromise,
-        totalExercisesPromise,
-        exercisesAddedInRangePromise,
+        embeddedExerciseStatsPromise,
         nutritionLogsTodayPromise,
         totalNutritionItemsPromise,
         nutritionItemsAddedInRangePromise,
@@ -287,32 +318,15 @@ const getAdminDashboard = async (req, res) => {
       ...(from && to
         ? [{ $match: { status: 'Active', ...dateMatch('date', from, to) } }]
         : [{ $match: { status: 'Active' } }]),
-      {
-        $lookup: {
-          from: Exercise.collection.name,
-          localField: 'exerciseName',
-          foreignField: 'title',
-          as: 'exerciseDoc',
-        },
-      },
-      {
-        $addFields: {
-          type: { $ifNull: [{ $arrayElemAt: ['$exerciseDoc.category', 0] }, 'Other'] },
-        },
-      },
-      { $group: { _id: '$type', value: { $sum: 1 } } },
+      { $group: { _id: '$exerciseName', value: { $sum: 1 } } },
       { $project: { _id: 0, label: '$_id', value: 1 } },
       { $sort: { value: -1 } },
+      { $limit: 12 },
     ]);
     const exerciseTypesThisWeekFinal =
       exerciseTypesThisWeek && exerciseTypesThisWeek.length
         ? exerciseTypesThisWeek
-        : await Exercise.aggregate([
-            { $match: { status: 'Active', ...dateMatch('createdAt', from, to) } },
-            { $group: { _id: { $ifNull: ['$category', 'Other'] }, value: { $sum: 1 } } },
-            { $project: { _id: 0, label: '$_id', value: 1 } },
-            { $sort: { value: -1 } },
-          ]);
+        : [{ label: 'No workout logs in range', value: 0 }];
 
     const nutritionLogsThisWeek = await MealLog.aggregate([
       ...(from && to
@@ -379,12 +393,10 @@ const getAdminDashboard = async (req, res) => {
       ];
     })();
 
-    const exerciseLibraryCategories = await Exercise.aggregate([
-      { $match: { status: 'Active' } },
-      { $group: { _id: { $ifNull: ['$category', 'Other'] }, value: { $sum: 1 } } },
-      { $project: { _id: 0, label: '$_id', value: 1 } },
-      { $sort: { value: -1 } },
-    ]);
+    let exerciseLibraryCategories = await aggregateExerciseLibraryBuckets();
+    if (!exerciseLibraryCategories.length) {
+      exerciseLibraryCategories = [{ label: 'No program exercises', value: 0 }];
+    }
 
     // ---------- Tables ----------
     const topFoodsThisWeek = await MealLog.aggregate([
@@ -408,13 +420,7 @@ const getAdminDashboard = async (req, res) => {
       { $project: { _id: 0, exerciseName: '$_id', count: 1 } },
     ]);
     const topExercisesThisWeek =
-      topExercisesFromLogs && topExercisesFromLogs.length
-        ? topExercisesFromLogs
-        : (await Exercise.find({ status: 'Active' })
-            .select('title')
-            .sort({ createdAt: -1 })
-            .limit(10)
-            .lean()).map((e) => ({ exerciseName: e.title || 'Exercise', count: 0 }));
+      topExercisesFromLogs && topExercisesFromLogs.length ? topExercisesFromLogs : [];
 
     // ---------- Recent activity ----------
     const [recentUsers, recentWorkouts, recentMeals] = await Promise.all([

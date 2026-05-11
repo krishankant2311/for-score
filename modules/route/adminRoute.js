@@ -19,13 +19,6 @@ const {
   deleteUser,
 } = require('../controller/adminController');
 const {
-  addExercise,
-  getAllExercises,
-  getExerciseById,
-  updateExercise,
-  deleteExercise,
-} = require('../controller/exerciseController');
-const {
   addDietPlan,
   getAllDietPlans,
   getDietPlanById,
@@ -153,13 +146,6 @@ router.get('/get-active-users/:id', upload.none(), verifyAccessToken, getActiveU
 router.get('/users/blocked/:id', upload.none(), verifyAccessToken, getBlockedUserByIdByAdmin);
 router.post('/userstatus/:id', upload.none(), verifyAccessToken, updateUserStatus);
 router.post('/users/:id', upload.none(), verifyAccessToken, deleteUser);
-
-// Exercise management (order: list/add before :id)
-router.post('/exercises', verifyAccessToken, uploadExerciseMedia.single('media'), addExercise);
-router.get('/get-all-exercises', upload.none(), verifyAccessToken, getAllExercises);
-router.get('/get-exercises/:id', upload.none(), verifyAccessToken, getExerciseById);
-router.post('/update-exercises/:id', verifyAccessToken, uploadExerciseMedia.single('media'), updateExercise);
-router.post('/delete-exercises/:id', upload.none(), verifyAccessToken, deleteExercise);
 
 // Diet plan (Nutrition & Macros)
 router.post('/diet-plans', upload.none(), verifyAccessToken, addDietPlan);
