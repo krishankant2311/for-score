@@ -37,7 +37,12 @@ const {
   selectActiveProgram,
   getSelectedProgramForUser,
   getTodayWorkout,
+  getTodayExerciseDetailFromProgram,
 } = require('../controller/todayWorkoutController');
+const {
+  getDailyExerciseCompletions,
+  putDailyExerciseCompletions,
+} = require('../controller/dailyExerciseCompletionController');
 const {
   addMeasurement,
   getAllMeasurements,
@@ -223,6 +228,9 @@ router.post('/workouts', upload.none(), verifyAccessToken, addOrUpdateWorkoutLog
 router.get('/workouts/by-date', upload.none(), verifyAccessToken, getWorkoutLogsByDate);
 router.get('/workouts/summary', upload.none(), verifyAccessToken, getWorkoutSummaryByDate);
 router.get('/workouts/history', upload.none(), verifyAccessToken, getWorkoutHistoryByExercise);
+router.get('/workouts/today/completions', upload.none(), verifyAccessToken, getDailyExerciseCompletions);
+router.put('/workouts/today/completions', upload.none(), verifyAccessToken, putDailyExerciseCompletions);
+router.get('/workouts/today/exercise', upload.none(), verifyAccessToken, getTodayExerciseDetailFromProgram);
 router.get('/workouts/today', upload.none(), verifyAccessToken, getTodayWorkout);
 router.get('/workouts/:id', upload.none(), verifyAccessToken, getWorkoutLogById);
 router.post('/workouts/:id/delete', upload.none(), verifyAccessToken, deleteWorkoutLog);

@@ -125,10 +125,13 @@ const programSchema = new mongoose.Schema(
       default: {},
       // e.g. { "1": { "mon": "...", "tue": "..." }, ... }
     },
+    /** Schedule keys (weekGrid / cadence tokens) → arrays of exercises (string name or rich object). */
     exerciseLibrary: {
       type: mongoose.Schema.Types.Mixed,
       default: {},
-      // e.g. { workoutA: [...], workoutB: [...], workoutC: [...] }
+      // Rich item fields (snake or camel): slotKey/slug/id, name/title, video_url, thumbnail_url,
+      // target_sets, target_reps_range, estimated_time_minutes, estimated_calories, difficulty_level,
+      // instructions (newline string or string[]), target_muscles / muscles_involved.
     },
     recoveryProtocol: {
       type: mongoose.Schema.Types.Mixed,

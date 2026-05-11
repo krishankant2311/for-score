@@ -1,9 +1,11 @@
 const User = require('../model/userModel');
 const Program = require('../model/programModel');
+const WorkoutLog = require('../model/workoutLogModel');
+const DailyExerciseCompletion = require('../model/dailyExerciseCompletionModel');
+const { toPublicFileUrl } = require('../../utils/publicFileUrl');
 
 const MON_FIRST_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 
-/** Match nutrition/workout controllers: calendar day start */
 const normalizeCalendarDate = (dateInput) => {
   const d = dateInput ? new Date(dateInput) : new Date();
   d.setHours(0, 0, 0, 0);
@@ -83,7 +85,6 @@ const libraryLookup = (exerciseLibrary, token) => {
   return null;
 };
 
-/** Strip "Mon " prefix and fuzzy-match "Upper A" -> upperA style keys */
 const guessLibraryFromScheduleToken = (exerciseLibrary, token) => {
   if (!exerciseLibrary || !token) return null;
   let body = String(token).trim().replace(/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)[\s,:-]*/i, '').trim();
@@ -94,11 +95,7 @@ const guessLibraryFromScheduleToken = (exerciseLibrary, token) => {
 
   const compact = body.replace(/\s+/g, '').toLowerCase();
   const underscored = body.replace(/\s+/g, '_').toLowerCase();
-  const tryKeys = [
-    underscored,
-    compact,
-    compact.replace(/^rest.*$/i, 'rest'),
-  ];
+  const tryKeys = [underscored, compact, compact.replace(/^rest.*$/i, 'rest')];
   for (const k of tryKeys) {
     const hit = libraryLookup(exerciseLibrary, k);
     if (hit) return hit;
@@ -112,33 +109,201 @@ const guessLibraryFromScheduleToken = (exerciseLibrary, token) => {
   return null;
 };
 
-const formatExerciseEntry = (raw, order) => {
-  if (typeof raw === 'string') {
-    return { order, name: raw.trim() || 'Exercise', sets: null, reps: null, durationMin: null, difficulty: null };
+const firstFiniteNumber = (...vals) => {
+  for (const v of vals) {
+    if (v === '' || v == null) continue;
+    const n = Number(v);
+    if (Number.isFinite(n)) return n;
   }
-  if (raw && typeof raw === 'object') {
-    return {
-      order: raw.order != null ? Number(raw.order) : order,
-      name: String(raw.name || raw.title || 'Exercise').trim(),
-      sets: raw.sets != null && raw.sets !== '' ? Number(raw.sets) : null,
-      reps: raw.reps != null ? String(raw.reps) : raw.repRange != null ? String(raw.repRange) : null,
-      durationMin:
-        raw.durationMin != null
-          ? Number(raw.durationMin)
-          : raw.timeMin != null
-            ? Number(raw.timeMin)
-            : null,
-      difficulty: raw.difficulty || raw.difficultyLevel || null,
-      notes: raw.notes ? String(raw.notes) : '',
-    };
-  }
-  return { order, name: String(raw), sets: null, reps: null, durationMin: null, difficulty: null };
+  return null;
 };
 
-const normalizeExerciseList = (rawList) => {
+const parseMusclesArray = (v) => {
+  if (v == null || v === '') return [];
+  if (Array.isArray(v)) return v.map((x) => String(x).trim()).filter(Boolean);
+  try {
+    if (typeof v === 'string') {
+      const t = v.trim();
+      if (t.startsWith('[')) {
+        const arr = JSON.parse(t);
+        return Array.isArray(arr) ? arr.map((x) => String(x).trim()).filter(Boolean) : [];
+      }
+      return t
+        .split(/[,|]/)
+        .map((x) => x.trim())
+        .filter(Boolean);
+    }
+  } catch (_) {
+    /* ignore */
+  }
+  return [];
+};
+
+const parseInstructionsArray = (v) => {
+  if (v == null || v === '') return [];
+  if (Array.isArray(v)) return v.map((x) => String(x).trim()).filter(Boolean);
+  return String(v)
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^\s*\d+[\).\s]+\s*/, '').trim())
+    .filter(Boolean);
+};
+
+/**
+ * Reads one exercise from Program.exerciseLibrary (admin-defined).
+ * Supports snake_case or camelCase; strings stay minimal.
+ */
+const parseExerciseSlotFromProgram = (raw, order, programId) => {
+  if (typeof raw === 'string') {
+    const name = raw.trim() || 'Exercise';
+    const slotKey = slugKey(name) || `p_${programId}_order_${order}`;
+    return {
+      order,
+      slotKey,
+      name,
+      targetSets: null,
+      durationMin: null,
+      caloriesEstimate: null,
+      difficultyLevel: null,
+      repRangeStr: null,
+      muscles: [],
+      instructionsList: [],
+      videoPath: '',
+      thumbPath: '',
+      mediaType: '',
+      notes: '',
+    };
+  }
+
+  const o = raw || {};
+  const name = String(o.name ?? o.title ?? 'Exercise').trim();
+
+  const slotKey =
+    String(o.slotKey ?? o.slug ?? o.code ?? o.id ?? o.programExerciseId ?? '').trim() ||
+    slugKey(name) ||
+    `p_${programId}_order_${order}`;
+
+  const targetSets = firstFiniteNumber(o.target_sets, o.targetSets, o.sets);
+  const repRangeRaw =
+    o.target_reps_range ?? o.targetRepsRange ?? o.repRange ?? o.reps ?? '';
+  const repRangeStr =
+    repRangeRaw != null && String(repRangeRaw).trim() !== ''
+      ? String(repRangeRaw).trim()
+      : null;
+
+  const durationMin = firstFiniteNumber(
+    o.estimated_time,
+    o.estimated_time_minutes,
+    o.estimatedTimeMinutes,
+    o.estimatedTime,
+    o.durationMinutes,
+    o.durationMin,
+    o.timeMin
+  );
+
+  const caloriesEstimate = firstFiniteNumber(
+    o.estimated_calories,
+    o.estimatedCalories,
+    o.caloriesEstimate,
+    o.calories,
+    o.kcal
+  );
+
+  const difficultyLevel =
+    String(o.difficulty_level ?? o.difficultyLevel ?? o.difficulty ?? '').trim() || null;
+
+  const muscles = parseMusclesArray(
+    o.target_muscles ?? o.targetMuscles ?? o.muscles_involved ?? o.muscles
+  );
+
+  const instructionsList = parseInstructionsArray(o.instructions);
+
+  const videoPath = String(
+    o.video_url ?? o.videoUrl ?? o.mediaUrl ?? o.video ?? ''
+  ).trim();
+  const thumbPath = String(
+    o.thumbnail_url ?? o.thumbnailUrl ?? o.thumbUrl ?? o.thumbnail ?? ''
+  ).trim();
+  const mediaType = String(o.media_type ?? o.mediaType ?? '').trim();
+  const notes = o.notes ? String(o.notes) : '';
+
+  return {
+    order,
+    slotKey,
+    name,
+    targetSets,
+    durationMin,
+    caloriesEstimate,
+    difficultyLevel,
+    repRangeStr,
+    muscles,
+    instructionsList,
+    videoPath,
+    thumbPath,
+    mediaType,
+    notes,
+  };
+};
+
+const normalizeExerciseListFromProgram = (rawList, programId) => {
   if (!rawList) return [];
   const arr = Array.isArray(rawList) ? rawList : [rawList];
-  return arr.map((item, idx) => formatExerciseEntry(item, idx + 1));
+  return arr.map((item, idx) => {
+    const ord =
+      item?.order != null && !Number.isNaN(Number(item.order)) ? Number(item.order) : idx + 1;
+    return parseExerciseSlotFromProgram(item, ord, programId);
+  });
+};
+
+const buildExercisePayloadForUser = (req, slot, { includeInstructions } = {}) => {
+  const videoUrl = slot.videoPath ? toPublicFileUrl(req, slot.videoPath) : '';
+  const thumbnailUrlNew = slot.thumbPath
+    ? toPublicFileUrl(req, slot.thumbPath)
+    : videoUrl;
+
+  const hasVideo =
+    !!slot.videoPath &&
+    (String(slot.mediaType).toLowerCase() === 'video' ||
+      /\.(mp4|mov|webm|m4v)(\?.*)?$/i.test(slot.videoPath));
+
+  const listLine =
+    [slot.targetSets && `${slot.targetSets} sets`, slot.repRangeStr, slot.durationMin && `${slot.durationMin} min`]
+      .filter(Boolean)
+      .join(' · ') || null;
+
+  const base = {
+    id: slot.slotKey,
+    slotKey: slot.slotKey,
+    order: slot.order,
+    name: slot.name,
+    video_url: videoUrl,
+    thumbnail_url: thumbnailUrlNew,
+    videoUrl,
+    thumbnailUrl: thumbnailUrlNew,
+    target_sets: slot.targetSets,
+    target_reps_range: slot.repRangeStr,
+    estimated_time_minutes: slot.durationMin,
+    estimated_calories: slot.caloriesEstimate,
+    difficulty_level: slot.difficultyLevel,
+    targetSets: slot.targetSets,
+    targetRepsRange: slot.repRangeStr,
+    estimatedTimeMinutes: slot.durationMin,
+    estimatedCalories: slot.caloriesEstimate,
+    difficultyLevel: slot.difficultyLevel,
+    muscles_involved: slot.muscles,
+    musclesInvolved: slot.muscles,
+    listSummaryLine: listLine,
+    hasVideo,
+    notes: slot.notes,
+  };
+
+  if (includeInstructions) {
+    base.instructions = slot.instructionsList;
+  } else {
+    base.instructions = [];
+    base.instructions_count = slot.instructionsList.length;
+  }
+
+  return base;
 };
 
 const inferScheduleStrategy = (weekGrid, weekNum, dayKey, program) => {
@@ -154,13 +319,11 @@ const inferScheduleStrategy = (weekGrid, weekNum, dayKey, program) => {
       scheduleTokenRaw != null && scheduleTokenRaw !== '' ? String(scheduleTokenRaw) : '';
 
     const workoutTitle = scheduleToken || program.programName;
-    let libraryToken = scheduleToken;
-
     return {
       strategy: 'cadence',
       scheduleToken,
       workoutTitle,
-      libraryToken,
+      libraryToken: scheduleToken,
     };
   }
 
@@ -199,16 +362,19 @@ const inferScheduleStrategy = (weekGrid, weekNum, dayKey, program) => {
     };
   }
 
-  return { strategy: 'unmapped', scheduleToken: null, workoutTitle: program.programName, libraryToken: null };
+  return {
+    strategy: 'unmapped',
+    scheduleToken: null,
+    workoutTitle: program.programName,
+    libraryToken: null,
+  };
 };
 
 const estimateSessionMinutes = (exercises, program) => {
   let sum = 0;
-  let n = 0;
   exercises.forEach((ex) => {
     if (ex.durationMin != null && !Number.isNaN(Number(ex.durationMin))) {
       sum += Number(ex.durationMin);
-      n += 1;
     }
   });
   if (sum > 0) return Math.round(sum);
@@ -216,6 +382,110 @@ const estimateSessionMinutes = (exercises, program) => {
     return Math.round(Number(program.avgSessionMinutes));
   }
   return Math.max(15, exercises.length * 10);
+};
+
+const resolveTodaysExerciseSlots = (program, programStartedAt, refDate, programIdStr) => {
+  const weekGrid = program.weekGrid && typeof program.weekGrid === 'object' ? program.weekGrid : {};
+  const exerciseLibrary =
+    program.exerciseLibrary && typeof program.exerciseLibrary === 'object'
+      ? program.exerciseLibrary
+      : {};
+
+  const dayKey = mondayFirstDayKey(refDate);
+  const { weekNum, maxWeek } = resolveWeekNumber(program, weekGrid, refDate, programStartedAt);
+
+  const inferred = inferScheduleStrategy(weekGrid, weekNum, dayKey, program);
+  let listRaw = libraryLookup(exerciseLibrary, inferred.libraryToken);
+  if (!listRaw && inferred.scheduleToken) {
+    listRaw = libraryLookup(exerciseLibrary, inferred.scheduleToken);
+  }
+  if (!listRaw && inferred.scheduleToken) {
+    listRaw = guessLibraryFromScheduleToken(exerciseLibrary, inferred.scheduleToken);
+  }
+  if (
+    !listRaw &&
+    inferred.strategy === 'weekGrid' &&
+    inferred.scheduleToken &&
+    /^[\d\sxX+-]+$/.test(String(inferred.scheduleToken).trim())
+  ) {
+    const daySlugMap = {
+      mon: ['monday', 'legs'],
+      wed: ['wednesday', 'upper'],
+      fri: ['friday', 'fullbody', 'full'],
+      tue: ['tuesday', 'recovery', 'cardio'],
+      thu: ['thursday'],
+      sat: ['saturday'],
+      sun: ['sunday'],
+    };
+    const parts = daySlugMap[dayKey] || [];
+    for (const p of parts) {
+      const hit = Object.keys(exerciseLibrary).find((k) => k.toLowerCase().includes(p));
+      if (hit) {
+        listRaw = exerciseLibrary[hit];
+        inferred.resolvedVia = `dayFallback:${hit}`;
+        break;
+      }
+    }
+  }
+
+  let slots = normalizeExerciseListFromProgram(listRaw, programIdStr);
+  let resolutionStrategy = inferred.strategy;
+
+  if (!slots.length && Array.isArray(inferred.scheduleToken) === false && inferred.scheduleToken) {
+    resolutionStrategy =
+      inferred.strategy +
+      (inferred.scheduleToken ? '_unmapped_library' : '');
+  }
+
+  return {
+    slots,
+    inferred,
+    weekNum,
+    maxWeek,
+    dayKey,
+    exerciseLibrary,
+    resolutionStrategy,
+  };
+};
+
+const getPreviousPerformanceForExercise = async (userId, exerciseName, dayDate) => {
+  const cutoff = normalizeCalendarDate(dayDate);
+  const log = await WorkoutLog.findOne({
+    userId,
+    exerciseName: String(exerciseName).trim(),
+    date: { $lt: cutoff },
+    status: { $ne: 'Deleted' },
+  })
+    .sort({ date: -1 })
+    .lean();
+
+  if (!log?.sets?.length) return null;
+
+  const rows = log.sets;
+  const headline = `${rows[0].weight} lbs × ${rows[0].reps} reps · ${rows.length} sets`;
+
+  return {
+    lastSessionDate: log.date,
+    summaryText: headline,
+    sets: rows.map((s) => ({
+      setNumber: s.setNumber,
+      weight: s.weight,
+      reps: s.reps,
+      previousWeight: s.previousWeight,
+      previousReps: s.previousReps,
+    })),
+    notes: log.notes || '',
+  };
+};
+
+const getTodaysWorkoutLogForExercise = async (userId, exerciseName, dayDate) => {
+  const d = normalizeCalendarDate(dayDate);
+  return WorkoutLog.findOne({
+    userId,
+    exerciseName: String(exerciseName).trim(),
+    date: d,
+    status: { $ne: 'Deleted' },
+  }).lean();
 };
 
 // --- HTTP handlers ----------------------------------------------------------
@@ -273,7 +543,6 @@ const selectActiveProgram = async (req, res) => {
   }
 };
 
-/** User’s chosen program (full document for weekGrid / exerciseLibrary) */
 const getSelectedProgramForUser = async (req, res) => {
   try {
     const user_id = req.token?._id;
@@ -358,72 +627,59 @@ const getTodayWorkout = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid date query' });
     }
 
-    const weekGrid = program.weekGrid && typeof program.weekGrid === 'object' ? program.weekGrid : {};
-    const exerciseLibrary =
-      program.exerciseLibrary && typeof program.exerciseLibrary === 'object'
-        ? program.exerciseLibrary
-        : {};
+    const programIdStr = String(program._id);
+    const {
+      slots,
+      inferred,
+      weekNum,
+      maxWeek,
+      dayKey,
+      exerciseLibrary,
+      resolutionStrategy,
+    } = resolveTodaysExerciseSlots(program, user.programStartedAt, refDate, programIdStr);
 
-    const dayKey = mondayFirstDayKey(refDate);
-    const { weekNum, maxWeek } = resolveWeekNumber(program, weekGrid, refDate, user.programStartedAt);
+    const normalizedDate = normalizeCalendarDate(refDate);
+    const completion = await DailyExerciseCompletion.findOne({
+      userId: user_id,
+      date: normalizedDate,
+    }).lean();
+    const doneKeys = new Set(
+      (completion?.completedSlotKeys || []).map((k) => String(k).trim()).filter(Boolean)
+    );
 
-    const inferred = inferScheduleStrategy(weekGrid, weekNum, dayKey, program);
-    let listRaw = libraryLookup(exerciseLibrary, inferred.libraryToken);
-    if (!listRaw && inferred.scheduleToken) {
-      listRaw = libraryLookup(exerciseLibrary, inferred.scheduleToken);
-    }
-    if (!listRaw && inferred.scheduleToken) {
-      listRaw = guessLibraryFromScheduleToken(exerciseLibrary, inferred.scheduleToken);
-    }
-    if (
-      !listRaw &&
-      inferred.strategy === 'weekGrid' &&
-      inferred.scheduleToken &&
-      /^[\d\sxX+-]+$/.test(String(inferred.scheduleToken).trim())
-    ) {
-      const daySlugMap = {
-        mon: ['monday', 'legs'],
-        wed: ['wednesday', 'upper'],
-        fri: ['friday', 'fullbody', 'full'],
-        tue: ['tuesday', 'recovery', 'cardio'],
-        thu: ['thursday'],
-        sat: ['saturday'],
-        sun: ['sunday'],
-      };
-      const parts = daySlugMap[dayKey] || [];
-      for (const p of parts) {
-        const hit = Object.keys(exerciseLibrary).find((k) => k.toLowerCase().includes(p));
-        if (hit) {
-          listRaw = exerciseLibrary[hit];
-          inferred.resolvedVia = `dayFallback:${hit}`;
-          break;
-        }
-      }
-    }
-
-    let exercises = normalizeExerciseList(listRaw);
-    let resolutionStrategy = inferred.strategy;
-
-    if (!exercises.length && Array.isArray(inferred.scheduleToken) === false && inferred.scheduleToken) {
-      resolutionStrategy =
-        inferred.strategy +
-        (inferred.scheduleToken ? '_unmapped_library' : '');
-    }
+    const exercises = slots.map((slot) => ({
+      ...buildExercisePayloadForUser(req, slot, { includeInstructions: false }),
+      completed: doneKeys.has(slot.slotKey),
+    }));
 
     const exerciseCount = exercises.length;
-    const estimatedMinutes = estimateSessionMinutes(exercises, program);
-    let estimatedCalories = null;
-    if (estimatedMinutes && program.avgSessionMinutes) {
-      estimatedCalories = Math.round((estimatedMinutes / Math.max(Number(program.avgSessionMinutes), 1)) * 300);
-    } else if (exerciseCount) {
+    const completedCount = exercises.filter((e) => e.completed).length;
+    const completionPercent = exerciseCount ? Math.round((completedCount / exerciseCount) * 100) : 0;
+
+    const estimatedMinutes = estimateSessionMinutes(slots, program);
+    const sumCals = slots.reduce(
+      (a, s) =>
+        a +
+        (s.caloriesEstimate != null && !Number.isNaN(Number(s.caloriesEstimate))
+          ? Number(s.caloriesEstimate)
+          : 0),
+      0
+    );
+    let estimatedCalories =
+      sumCals > 0 ? Math.round(sumCals) : null;
+    if (estimatedCalories == null && estimatedMinutes && program.avgSessionMinutes) {
+      estimatedCalories = Math.round(
+        (estimatedMinutes / Math.max(Number(program.avgSessionMinutes), 1)) * 300
+      );
+    } else if (estimatedCalories == null && exerciseCount) {
       estimatedCalories = exerciseCount * 45;
     }
 
     return res.json({
       success: true,
-      message: "Today's workout resolved",
+      message: "Today's workout (from program exerciseLibrary)",
       result: {
-        date: normalizeCalendarDate(refDate),
+        date: normalizedDate,
         program: {
           _id: program._id,
           programName: program.programName,
@@ -438,13 +694,131 @@ const getTodayWorkout = async (req, res) => {
         exercises,
         summary: {
           exerciseCount,
+          completedExerciseCount: completedCount,
+          completionPercent,
           estimatedMinutes,
           estimatedCalories,
         },
         meta: {
           resolutionStrategy,
           libraryKeys: Object.keys(exerciseLibrary).slice(0, 30),
+          exerciseDetailUrl: '/api/user/workouts/today/exercise?slotKey=',
+          completionsUrl: '/api/user/workouts/today/completions',
         },
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: err.message,
+    });
+  }
+};
+
+const getTodayExerciseDetailFromProgram = async (req, res) => {
+  try {
+    const user_id = req.token?._id;
+    const slotKey = String(req.query.slotKey || '').trim();
+    if (!slotKey) {
+      return res.status(400).json({
+        success: false,
+        message: 'Query slotKey is required (use id from GET /workouts/today)',
+      });
+    }
+
+    const user = await User.findById(user_id).select('activeProgramId programStartedAt').lean();
+    if (!user) {
+      return res.status(400).json({ success: false, message: 'User not found' });
+    }
+
+    if (!user.activeProgramId || !user.programStartedAt) {
+      return res.status(400).json({
+        success: false,
+        message: 'No active program. POST /api/user/programs/active with programId first.',
+      });
+    }
+
+    const program = await Program.findOne({
+      _id: user.activeProgramId,
+      status: 'Active',
+    }).lean();
+
+    if (!program) {
+      return res.status(404).json({
+        success: false,
+        message: 'Active program no longer exists',
+      });
+    }
+
+    const refDate = req.query.date ? new Date(req.query.date) : new Date();
+    if (Number.isNaN(refDate.getTime())) {
+      return res.status(400).json({ success: false, message: 'Invalid date query' });
+    }
+
+    const programIdStr = String(program._id);
+    const { slots, inferred, weekNum, maxWeek, dayKey, resolutionStrategy } =
+      resolveTodaysExerciseSlots(program, user.programStartedAt, refDate, programIdStr);
+
+    const slot = slots.find((s) => s.slotKey === slotKey);
+    if (!slot) {
+      return res.status(404).json({
+        success: false,
+        message: 'Exercise not in today’s program list',
+      });
+    }
+
+    const normalizedDate = normalizeCalendarDate(refDate);
+    const completion = await DailyExerciseCompletion.findOne({
+      userId: user_id,
+      date: normalizedDate,
+    }).lean();
+    const doneKeys = new Set(
+      (completion?.completedSlotKeys || []).map((k) => String(k).trim()).filter(Boolean)
+    );
+
+    const exercise = {
+      ...buildExercisePayloadForUser(req, slot, { includeInstructions: true }),
+      completed: doneKeys.has(slot.slotKey),
+    };
+
+    const [previousPerformance, todaySessionLog] = await Promise.all([
+      getPreviousPerformanceForExercise(user_id, slot.name, normalizedDate),
+      getTodaysWorkoutLogForExercise(user_id, slot.name, normalizedDate),
+    ]);
+
+    const todaySession = todaySessionLog
+      ? {
+          logId: String(todaySessionLog._id),
+          sets: (todaySessionLog.sets || []).map((s) => ({
+            setNumber: s.setNumber,
+            weight: s.weight,
+            reps: s.reps,
+            previousWeight: s.previousWeight,
+            previousReps: s.previousReps,
+          })),
+          notes: todaySessionLog.notes || '',
+        }
+      : null;
+
+    return res.json({
+      success: true,
+      message: 'Exercise detail',
+      result: {
+        date: normalizedDate,
+        schedule: {
+          weekNumber: weekNum,
+          weekCount: maxWeek,
+          dayKey,
+          slotLabel: inferred.scheduleToken,
+          workoutTitle: inferred.workoutTitle || program.programName,
+        },
+        exercise,
+        previous_performance: previousPerformance,
+        /** Today’s logged sets (same exerciseName in WorkoutLog) */
+        today_session: todaySession,
+        meta: { resolutionStrategy, dataSource: 'program.exerciseLibrary' },
       },
     });
   } catch (err) {
@@ -460,7 +834,7 @@ const getTodayWorkout = async (req, res) => {
 module.exports = {
   selectActiveProgram,
   getSelectedProgramForUser,
-  /** @deprecated alias — use GET /programs/selected */
   getActiveProgramForUser: getSelectedProgramForUser,
   getTodayWorkout,
+  getTodayExerciseDetailFromProgram,
 };
