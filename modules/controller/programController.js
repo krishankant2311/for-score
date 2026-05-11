@@ -1,6 +1,10 @@
 const { Admin } = require('../model/adminModel');
 const Program = require('../model/programModel');
 const User = require('../model/userModel');
+const {
+  mergeRecoveryMediaUploads,
+  rewriteProgramMediaUrlsForResponse,
+} = require('../../utils/programMediaUrls');
 
 const parseJsonIfString = (value, fallback) => {
   if (value == null) return fallback;
@@ -226,6 +230,8 @@ const addProgram = async (req, res) => {
       });
     }
 
+    mergeRecoveryMediaUploads(req, recoveryProtocolParsed);
+
     const skillAllowed = ['Beginner', 'Intermediate', 'Advanced', 'Any', 'Beg / Int'];
     if (!skillAllowed.includes(workoutSkillLevel)) {
       return res.status(400).json({
@@ -304,7 +310,7 @@ const addProgram = async (req, res) => {
     return res.json({
       success: true,
       message: 'Program added successfully',
-      result: program,
+      result: rewriteProgramMediaUrlsForResponse(req, program),
     });
   } catch (err) {
     console.error(err);
@@ -396,7 +402,7 @@ const getAllPrograms = async (req, res) => {
       success: true,
       message: 'Programs fetched successfully',
       result: {
-        programs,
+        programs: programs.map((p) => rewriteProgramMediaUrlsForResponse(req, p)),
         total,
         page,
         limit,
@@ -445,7 +451,7 @@ const getProgramById = async (req, res) => {
     return res.json({
       success: true,
       message: 'Program fetched successfully',
-      result: program,
+      result: rewriteProgramMediaUrlsForResponse(req, program),
     });
   } catch (err) {
     console.error(err);
@@ -590,6 +596,8 @@ const updateProgram = async (req, res) => {
         });
       }
 
+      mergeRecoveryMediaUploads(req, recoveryProtocolParsed);
+
       program.weekGrid = weekGridParsed;
       program.exerciseLibrary = exerciseLibraryParsed;
       program.recoveryProtocol = recoveryProtocolParsed;
@@ -617,7 +625,7 @@ const updateProgram = async (req, res) => {
     return res.json({
       success: true,
       message: 'Program updated successfully',
-      result: program,
+      result: rewriteProgramMediaUrlsForResponse(req, program),
     });
   } catch (err) {
     console.error(err);
@@ -681,7 +689,7 @@ const getAllProgramsByUser = async (req, res) => {
     return res.json({
       success: true,
       message: 'Programs fetched successfully',
-      result: programs,
+      result: programs.map((p) => rewriteProgramMediaUrlsForResponse(req, p)),
     });
   } catch (err) {
     console.error(err);
@@ -722,7 +730,7 @@ const getProgramByUserAndId = async (req, res) => {
     return res.json({
       success: true,
       message: 'Program fetched successfully',
-      result: program,
+      result: rewriteProgramMediaUrlsForResponse(req, program),
     });
   } catch (err) {
     console.error(err);
@@ -737,6 +745,8 @@ const getProgramByUserAndId = async (req, res) => {
 // 8. Recommend best program for user by profile + tie-breaker rules
 const getRecommendedProgramByUserProfile = async (req, res) => {
   try {
+    const withMedia = (p) => rewriteProgramMediaUrlsForResponse(req, p);
+
     const token = req.token;
     const user_id = token?._id;
 
@@ -786,7 +796,7 @@ const getRecommendedProgramByUserProfile = async (req, res) => {
         return res.json({
           success: true,
           message: 'Recommended program fetched successfully',
-          result: prenatal,
+          result: withMedia(prenatal),
           meta: { ruleApplied: 'SafetyFlagPrenatalPostpartum' },
         });
       }
@@ -806,7 +816,7 @@ const getRecommendedProgramByUserProfile = async (req, res) => {
         return res.json({
           success: true,
           message: 'Recommended program fetched successfully',
-          result: quickie,
+          result: withMedia(quickie),
           meta: { ruleApplied: 'QuickiePriority' },
         });
       }
@@ -883,7 +893,7 @@ const getRecommendedProgramByUserProfile = async (req, res) => {
         return res.json({
           success: true,
           message: 'Recommended program fetched successfully',
-          result: fallback,
+          result: withMedia(fallback),
           meta: { ruleApplied: 'NoMatchFallback' },
         });
       }
@@ -895,7 +905,7 @@ const getRecommendedProgramByUserProfile = async (req, res) => {
       return res.json({
         success: true,
         message: 'Recommended program fetched successfully',
-        result: latest,
+        result: withMedia(latest),
         meta: { ruleApplied: 'LatestActiveFallback' },
       });
     }
@@ -922,7 +932,7 @@ const getRecommendedProgramByUserProfile = async (req, res) => {
     return res.json({
       success: true,
       message: 'Recommended program fetched successfully',
-      result: recommended,
+      result: withMedia(recommended),
       meta: { ruleApplied: 'ProfileMatch' },
     });
   } catch (err) {

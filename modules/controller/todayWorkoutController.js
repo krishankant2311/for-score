@@ -3,6 +3,7 @@ const Program = require('../model/programModel');
 const WorkoutLog = require('../model/workoutLogModel');
 const DailyExerciseCompletion = require('../model/dailyExerciseCompletionModel');
 const { toPublicFileUrl } = require('../../utils/publicFileUrl');
+const { rewriteProgramMediaUrlsForResponse } = require('../../utils/programMediaUrls');
 
 const MON_FIRST_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 
@@ -254,6 +255,20 @@ const normalizeExerciseListFromProgram = (rawList, programId) => {
   });
 };
 
+/** One line under exercise name — matches list UI: "4 sets × 8-12 • 15 min" */
+const formatWorkoutListSubtitle = (slot) => {
+  const parts = [];
+  const sets =
+    slot.targetSets != null && !Number.isNaN(Number(slot.targetSets)) ? Number(slot.targetSets) : null;
+  const reps = slot.repRangeStr && String(slot.repRangeStr).trim() ? String(slot.repRangeStr).trim() : null;
+  if (sets != null && reps) parts.push(`${sets} sets × ${reps}`);
+  else if (sets != null) parts.push(`${sets} sets`);
+  else if (reps) parts.push(reps);
+  const dm = slot.durationMin != null && !Number.isNaN(Number(slot.durationMin)) ? Number(slot.durationMin) : null;
+  if (dm != null) parts.push(`${dm} min`);
+  return parts.length ? parts.join(' • ') : null;
+};
+
 const buildExercisePayloadForUser = (req, slot, { includeInstructions } = {}) => {
   const videoUrl = slot.videoPath ? toPublicFileUrl(req, slot.videoPath) : '';
   const thumbnailUrlNew = slot.thumbPath
@@ -265,10 +280,7 @@ const buildExercisePayloadForUser = (req, slot, { includeInstructions } = {}) =>
     (String(slot.mediaType).toLowerCase() === 'video' ||
       /\.(mp4|mov|webm|m4v)(\?.*)?$/i.test(slot.videoPath));
 
-  const listLine =
-    [slot.targetSets && `${slot.targetSets} sets`, slot.repRangeStr, slot.durationMin && `${slot.durationMin} min`]
-      .filter(Boolean)
-      .join(' · ') || null;
+  const listLine = formatWorkoutListSubtitle(slot);
 
   const base = {
     id: slot.slotKey,
@@ -309,6 +321,23 @@ const buildExercisePayloadForUser = (req, slot, { includeInstructions } = {}) =>
   }
 
   return base;
+};
+
+/** Slim payload for GET /workouts/today (list screen only). Detail: GET /workouts/today/exercise */
+const buildTodayWorkoutListItem = (req, slot, completed) => {
+  const thumb = slot.thumbPath ? toPublicFileUrl(req, slot.thumbPath) : '';
+  const thumbnailUrl = thumb || (slot.videoPath ? toPublicFileUrl(req, slot.videoPath) : '');
+  return {
+    slotKey: slot.slotKey,
+    name: slot.name,
+    thumbnail_url: thumbnailUrl,
+    sets: slot.targetSets,
+    reps_range: slot.repRangeStr,
+    duration_minutes: slot.durationMin,
+    difficulty: slot.difficultyLevel,
+    subtitle: formatWorkoutListSubtitle(slot),
+    completed,
+  };
 };
 
 const inferScheduleStrategy = (weekGrid, weekNum, dayKey, program) => {
@@ -587,7 +616,7 @@ const getSelectedProgramForUser = async (req, res) => {
       result: {
         activeProgramId: user.activeProgramId,
         programStartedAt: user.programStartedAt,
-        program,
+        program: rewriteProgramMediaUrlsForResponse(req, program),
       },
     });
   } catch (err) {
@@ -633,15 +662,12 @@ const getTodayWorkout = async (req, res) => {
     }
 
     const programIdStr = String(program._id);
-    const {
-      slots,
-      inferred,
-      weekNum,
-      maxWeek,
-      dayKey,
-      exerciseLibrary,
-      resolutionStrategy,
-    } = resolveTodaysExerciseSlots(program, user.programStartedAt, refDate, programIdStr);
+    const { slots, inferred } = resolveTodaysExerciseSlots(
+      program,
+      user.programStartedAt,
+      refDate,
+      programIdStr
+    );
 
     const normalizedDate = normalizeCalendarDate(refDate);
     const completion = await DailyExerciseCompletion.findOne({
@@ -652,10 +678,9 @@ const getTodayWorkout = async (req, res) => {
       (completion?.completedSlotKeys || []).map((k) => String(k).trim()).filter(Boolean)
     );
 
-    const exercises = slots.map((slot) => ({
-      ...buildExercisePayloadForUser(req, slot, { includeInstructions: false }),
-      completed: doneKeys.has(slot.slotKey),
-    }));
+    const exercises = slots.map((slot) =>
+      buildTodayWorkoutListItem(req, slot, doneKeys.has(slot.slotKey))
+    );
 
     const exerciseCount = exercises.length;
     const completedCount = exercises.filter((e) => e.completed).length;
@@ -680,36 +705,22 @@ const getTodayWorkout = async (req, res) => {
       estimatedCalories = exerciseCount * 45;
     }
 
+    const workoutTitle = inferred.workoutTitle || program.programName || '';
+
     return res.json({
       success: true,
-      message: "Today's workout (from program exerciseLibrary)",
+      message: "Today's workout",
       result: {
         date: normalizedDate,
-        program: {
-          _id: program._id,
-          programName: program.programName,
-        },
-        schedule: {
-          weekNumber: weekNum,
-          weekCount: maxWeek,
-          dayKey,
-          slotLabel: inferred.scheduleToken,
-          workoutTitle: inferred.workoutTitle || program.programName,
+        workout_title: workoutTitle,
+        summary: {
+          total_exercises: exerciseCount,
+          completed_exercises: completedCount,
+          completion_percent: completionPercent,
+          estimated_minutes: estimatedMinutes,
+          estimated_calories: estimatedCalories != null ? estimatedCalories : 0,
         },
         exercises,
-        summary: {
-          exerciseCount,
-          completedExerciseCount: completedCount,
-          completionPercent,
-          estimatedMinutes,
-          estimatedCalories,
-        },
-        meta: {
-          resolutionStrategy,
-          libraryKeys: Object.keys(exerciseLibrary).slice(0, 30),
-          exerciseDetailUrl: '/api/user/workouts/today/exercise?slotKey=',
-          completionsUrl: '/api/user/workouts/today/completions',
-        },
       },
     });
   } catch (err) {
