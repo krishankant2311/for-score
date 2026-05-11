@@ -111,6 +111,17 @@ const userSchema = new mongoose.Schema(
       ref: 'Plan',
       default: null,
     },
+    /** Active workout program (from Program collection) for /workouts/today */
+    activeProgramId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Program',
+      default: null,
+    },
+    /** Calendar start for week 1, day Mon–Sun indexing in today resolver */
+    programStartedAt: {
+      type: Date,
+      default: null,
+    },
     oneSignalPlayerId: {
       type: String,
       default: '',

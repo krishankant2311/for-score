@@ -34,6 +34,11 @@ const {
   getRecommendedProgramByUserProfile,
 } = require('../controller/programController');
 const {
+  selectActiveProgram,
+  getActiveProgramForUser,
+  getTodayWorkout,
+} = require('../controller/todayWorkoutController');
+const {
   addMeasurement,
   getAllMeasurements,
   getMeasurementById,
@@ -150,10 +155,12 @@ router.post('/profile/last-workout', upload.none(), verifyAccessToken, addLastWo
 router.post('/profile/training-location', upload.none(), verifyAccessToken, addTrainingLocation);
 router.post('/profile/player-id', upload.none(), verifyAccessToken, saveOneSignalPlayerId);
 
-// Programs for user (only Active/Draft, not Deleted)
+// Programs for user — static paths before /programs/:id
 router.get('/programs', upload.none(), verifyAccessToken, getAllProgramsByUser);
-router.get('/programs/:id', upload.none(), verifyAccessToken, getProgramByUserAndId);
 router.get('/programs/recommended/me', upload.none(), verifyAccessToken, getRecommendedProgramByUserProfile);
+router.post('/programs/active', upload.none(), verifyAccessToken, selectActiveProgram);
+router.get('/programs/active', upload.none(), verifyAccessToken, getActiveProgramForUser);
+router.get('/programs/:id', upload.none(), verifyAccessToken, getProgramByUserAndId);
 
 // Measurements (user-scoped: add, get all, get by id, update, soft delete)
 router.post('/add-measurements', upload.none(), verifyAccessToken, addMeasurement);
@@ -215,6 +222,7 @@ router.post('/workouts', upload.none(), verifyAccessToken, addOrUpdateWorkoutLog
 router.get('/workouts/by-date', upload.none(), verifyAccessToken, getWorkoutLogsByDate);
 router.get('/workouts/summary', upload.none(), verifyAccessToken, getWorkoutSummaryByDate);
 router.get('/workouts/history', upload.none(), verifyAccessToken, getWorkoutHistoryByExercise);
+router.get('/workouts/today', upload.none(), verifyAccessToken, getTodayWorkout);
 router.get('/workouts/:id', upload.none(), verifyAccessToken, getWorkoutLogById);
 router.post('/workouts/:id/delete', upload.none(), verifyAccessToken, deleteWorkoutLog);
 
