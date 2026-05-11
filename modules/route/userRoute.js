@@ -38,10 +38,12 @@ const {
   getSelectedProgramForUser,
   getTodayWorkout,
   getTodayExerciseDetailFromProgram,
+  saveTodayExercisePerformance,
 } = require('../controller/todayWorkoutController');
 const {
   getDailyExerciseCompletions,
   putDailyExerciseCompletions,
+  postTodayExerciseSlotCompletion,
 } = require('../controller/dailyExerciseCompletionController');
 const {
   addMeasurement,
@@ -230,6 +232,18 @@ router.get('/workouts/summary', upload.none(), verifyAccessToken, getWorkoutSumm
 router.get('/workouts/history', upload.none(), verifyAccessToken, getWorkoutHistoryByExercise);
 router.get('/workouts/today/completions', upload.none(), verifyAccessToken, getDailyExerciseCompletions);
 router.put('/workouts/today/completions', upload.none(), verifyAccessToken, putDailyExerciseCompletions);
+router.post(
+  '/workouts/today/exercise/performance',
+  upload.none(),
+  verifyAccessToken,
+  saveTodayExercisePerformance
+);
+router.post(
+  '/workouts/today/exercise/completion',
+  upload.none(),
+  verifyAccessToken,
+  postTodayExerciseSlotCompletion
+);
 router.get('/workouts/today/exercise', upload.none(), verifyAccessToken, getTodayExerciseDetailFromProgram);
 router.get('/workouts/today', upload.none(), verifyAccessToken, getTodayWorkout);
 router.get('/workouts/:id', upload.none(), verifyAccessToken, getWorkoutLogById);

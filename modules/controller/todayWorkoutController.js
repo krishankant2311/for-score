@@ -496,7 +496,7 @@ const getPreviousPerformanceForExercise = async (userId, exerciseName, dayDate) 
   if (!log?.sets?.length) return null;
 
   const rows = log.sets;
-  const headline = `${rows[0].weight} lbs × ${rows[0].reps} reps · ${rows.length} sets`;
+  const headline = `${rows[0].weight} lbs × ${rows[0].reps} reps • ${rows.length} sets total`;
 
   return {
     lastSessionDate: log.date,
@@ -520,6 +520,194 @@ const getTodaysWorkoutLogForExercise = async (userId, exerciseName, dayDate) => 
     date: d,
     status: { $ne: 'Deleted' },
   }).lean();
+};
+
+const loadTodayExerciseContext = async (user_id, slotKey, refDateInput) => {
+  const key = String(slotKey || '').trim();
+  if (!key) {
+    return {
+      error: { status: 400, body: { success: false, message: 'slotKey is required' } },
+    };
+  }
+  const refDate = refDateInput ? new Date(refDateInput) : new Date();
+  if (Number.isNaN(refDate.getTime())) {
+    return {
+      error: { status: 400, body: { success: false, message: 'Invalid date' } },
+    };
+  }
+  const user = await User.findById(user_id).select('activeProgramId programStartedAt').lean();
+  if (!user) {
+    return { error: { status: 400, body: { success: false, message: 'User not found' } } };
+  }
+  if (!user.activeProgramId || !user.programStartedAt) {
+    return {
+      error: {
+        status: 400,
+        body: {
+          success: false,
+          message: 'No active program. POST /api/user/programs/active with programId first.',
+        },
+      },
+    };
+  }
+  const program = await Program.findOne({
+    _id: user.activeProgramId,
+    status: 'Active',
+  }).lean();
+  if (!program) {
+    return {
+      error: {
+        status: 404,
+        body: { success: false, message: 'Active program no longer exists' },
+      },
+    };
+  }
+  const programIdStr = String(program._id);
+  const { slots, inferred, weekNum, maxWeek, dayKey } = resolveTodaysExerciseSlots(
+    program,
+    user.programStartedAt,
+    refDate,
+    programIdStr
+  );
+  const slot = slots.find((s) => s.slotKey === key);
+  if (!slot) {
+    return {
+      error: {
+        status: 404,
+        body: {
+          success: false,
+          message: 'Exercise not in today’s program list (check slotKey from GET /workouts/today)',
+        },
+      },
+    };
+  }
+  const normalizedDate = normalizeCalendarDate(refDate);
+  return {
+    user,
+    program,
+    slot,
+    inferred,
+    weekNum,
+    maxWeek,
+    dayKey,
+    normalizedDate,
+  };
+};
+
+const buildTodayExerciseDetailScreen = (
+  req,
+  {
+    program,
+    slot,
+    inferred,
+    weekNum,
+    maxWeek,
+    dayKey,
+    normalizedDate,
+    completed,
+    previousPerformance,
+    todaySessionLog,
+  }
+) => {
+  const videoUrl = slot.videoPath ? toPublicFileUrl(req, slot.videoPath) : '';
+  const thumbUrl = slot.thumbPath ? toPublicFileUrl(req, slot.thumbPath) : videoUrl;
+  const muscles = Array.isArray(slot.muscles) ? slot.muscles : [];
+
+  let todayLogPayload = null;
+  if (todaySessionLog?._id) {
+    todayLogPayload = {
+      log_id: String(todaySessionLog._id),
+      notes: todaySessionLog.notes || '',
+      sets: (todaySessionLog.sets || []).map((s) => ({
+        set: s.setNumber,
+        weight_lbs: s.weight,
+        reps: s.reps,
+        previous_compact:
+          s.previousWeight != null && s.previousReps != null
+            ? `${s.previousWeight}×${s.previousReps}`
+            : '',
+        previous_weight_lbs: s.previousWeight ?? null,
+        previous_reps: s.previousReps ?? null,
+      })),
+    };
+  }
+
+  let lastWorkoutPayload = null;
+  if (previousPerformance?.sets?.length) {
+    const rows = previousPerformance.sets;
+    lastWorkoutPayload = {
+      last_session_date: previousPerformance.lastSessionDate,
+      summary_line: previousPerformance.summaryText,
+      sets: rows.map((s) => ({
+        set: s.setNumber,
+        weight_lbs: s.weight,
+        reps: s.reps,
+        previous_compact:
+          s.previousWeight != null && s.previousReps != null
+            ? `${s.previousWeight}×${s.previousReps}`
+            : '',
+      })),
+    };
+  }
+
+  return {
+    date: normalizedDate,
+    workout_title: inferred.workoutTitle || program.programName || '',
+    schedule_context: {
+      week_number: weekNum,
+      week_count: maxWeek,
+      day_key: dayKey,
+      slot_label: inferred.scheduleToken,
+    },
+    slot_key: slot.slotKey,
+    exercise: {
+      name: slot.name,
+      video_url: videoUrl,
+      thumbnail_url: thumbUrl,
+      target_sets: slot.targetSets,
+      reps_range: slot.repRangeStr,
+      time_minutes: slot.durationMin,
+      estimated_calories: slot.caloriesEstimate,
+      difficulty: slot.difficultyLevel,
+      target_muscles_line: muscles.length ? muscles.join(', ') : '',
+      target_muscles: muscles,
+      muscles_tags: muscles,
+      instructions: slot.instructionsList || [],
+      completed,
+      notes_program: slot.notes || '',
+    },
+    logging: {
+      exercise_name_used_in_logs: slot.name.trim(),
+      last_workout: lastWorkoutPayload,
+      today_saved_log: todayLogPayload,
+    },
+  };
+};
+
+const parseBodySetsArray = (sets) => {
+  let parsedSets = [];
+  if (Array.isArray(sets)) parsedSets = sets;
+  else if (typeof sets === 'string' && sets.trim()) {
+    try {
+      parsedSets = JSON.parse(sets);
+    } catch (_) {
+      return { error: 'sets must be a valid JSON array' };
+    }
+  }
+  if (!parsedSets.length) return { error: 'At least one set is required' };
+  const cleaned = parsedSets.map((s, idx) => ({
+    setNumber: Number(s.setNumber ?? s.set ?? idx + 1),
+    weight: Number(s.weight ?? 0),
+    reps: Number(s.reps ?? 0),
+    previousWeight:
+      s.previousWeight != null && s.previousWeight !== '' ? Number(s.previousWeight) : null,
+    previousReps:
+      s.previousReps != null && s.previousReps !== '' ? Number(s.previousReps) : null,
+  }));
+  if (cleaned.some((s) => Number.isNaN(s.weight) || Number.isNaN(s.reps) || Number.isNaN(s.setNumber))) {
+    return { error: 'Each set needs numeric setNumber, weight, reps' };
+  }
+  return { cleaned };
 };
 
 // --- HTTP handlers ----------------------------------------------------------
@@ -740,101 +928,119 @@ const getTodayExerciseDetailFromProgram = async (req, res) => {
     if (!slotKey) {
       return res.status(400).json({
         success: false,
-        message: 'Query slotKey is required (use id from GET /workouts/today)',
-      });
-    }
-
-    const user = await User.findById(user_id).select('activeProgramId programStartedAt').lean();
-    if (!user) {
-      return res.status(400).json({ success: false, message: 'User not found' });
-    }
-
-    if (!user.activeProgramId || !user.programStartedAt) {
-      return res.status(400).json({
-        success: false,
-        message: 'No active program. POST /api/user/programs/active with programId first.',
-      });
-    }
-
-    const program = await Program.findOne({
-      _id: user.activeProgramId,
-      status: 'Active',
-    }).lean();
-
-    if (!program) {
-      return res.status(404).json({
-        success: false,
-        message: 'Active program no longer exists',
+        message: 'Query slotKey is required (use slotKey from GET /workouts/today)',
       });
     }
 
     const refDate = req.query.date ? new Date(req.query.date) : new Date();
-    if (Number.isNaN(refDate.getTime())) {
-      return res.status(400).json({ success: false, message: 'Invalid date query' });
-    }
+    const ctx = await loadTodayExerciseContext(user_id, slotKey, refDate);
+    if (ctx.error) return res.status(ctx.error.status).json(ctx.error.body);
 
-    const programIdStr = String(program._id);
-    const { slots, inferred, weekNum, maxWeek, dayKey, resolutionStrategy } =
-      resolveTodaysExerciseSlots(program, user.programStartedAt, refDate, programIdStr);
-
-    const slot = slots.find((s) => s.slotKey === slotKey);
-    if (!slot) {
-      return res.status(404).json({
-        success: false,
-        message: 'Exercise not in today’s program list',
-      });
-    }
-
-    const normalizedDate = normalizeCalendarDate(refDate);
     const completion = await DailyExerciseCompletion.findOne({
       userId: user_id,
-      date: normalizedDate,
+      date: ctx.normalizedDate,
     }).lean();
     const doneKeys = new Set(
       (completion?.completedSlotKeys || []).map((k) => String(k).trim()).filter(Boolean)
     );
 
-    const exercise = {
-      ...buildExercisePayloadForUser(req, slot, { includeInstructions: true }),
-      completed: doneKeys.has(slot.slotKey),
-    };
-
     const [previousPerformance, todaySessionLog] = await Promise.all([
-      getPreviousPerformanceForExercise(user_id, slot.name, normalizedDate),
-      getTodaysWorkoutLogForExercise(user_id, slot.name, normalizedDate),
+      getPreviousPerformanceForExercise(user_id, ctx.slot.name, ctx.normalizedDate),
+      getTodaysWorkoutLogForExercise(user_id, ctx.slot.name, ctx.normalizedDate),
     ]);
 
-    const todaySession = todaySessionLog
+    const result = buildTodayExerciseDetailScreen(req, {
+      program: ctx.program,
+      slot: ctx.slot,
+      inferred: ctx.inferred,
+      weekNum: ctx.weekNum,
+      maxWeek: ctx.maxWeek,
+      dayKey: ctx.dayKey,
+      normalizedDate: ctx.normalizedDate,
+      completed: doneKeys.has(ctx.slot.slotKey),
+      previousPerformance,
+      todaySessionLog,
+    });
+
+    return res.json({
+      success: true,
+      message: 'Exercise detail for today',
+      result,
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: err.message,
+    });
+  }
+};
+
+/**
+ * POST body: slotKey (required), date (optional), sets: [{ weight, reps, setNumber? }], notes (optional).
+ * Saves WorkoutLog for this exercise display name — same calendar day as today's workout resolution.
+ */
+const saveTodayExercisePerformance = async (req, res) => {
+  try {
+    const user_id = req.token?._id;
+    const { slotKey, date, sets, notes } = req.body || {};
+    const refDate = date ? new Date(date) : new Date();
+    const ctx = await loadTodayExerciseContext(user_id, slotKey, refDate);
+    if (ctx.error) return res.status(ctx.error.status).json(ctx.error.body);
+
+    const parsed = parseBodySetsArray(sets);
+    if (parsed.error) return res.status(400).json({ success: false, message: parsed.error });
+
+    const exerciseName = ctx.slot.name.trim();
+    const normalizedDate = ctx.normalizedDate;
+
+    let log = await WorkoutLog.findOne({
+      userId: user_id,
+      date: normalizedDate,
+      exerciseName,
+      status: { $ne: 'Deleted' },
+    });
+
+    if (!log) {
+      log = await WorkoutLog.create({
+        userId: user_id,
+        date: normalizedDate,
+        exerciseName,
+        notes: (notes != null ? String(notes) : '').trim(),
+        sets: parsed.cleaned,
+      });
+    } else {
+      log.sets = parsed.cleaned;
+      if (notes != null) log.notes = String(notes).trim();
+      await log.save();
+    }
+
+    const leanLog = await WorkoutLog.findById(log._id).lean();
+    const today_saved_log = leanLog
       ? {
-          logId: String(todaySessionLog._id),
-          sets: (todaySessionLog.sets || []).map((s) => ({
-            setNumber: s.setNumber,
-            weight: s.weight,
+          log_id: String(leanLog._id),
+          notes: leanLog.notes || '',
+          sets: (leanLog.sets || []).map((s) => ({
+            set: s.setNumber,
+            weight_lbs: s.weight,
             reps: s.reps,
-            previousWeight: s.previousWeight,
-            previousReps: s.previousReps,
+            previous_compact:
+              s.previousWeight != null && s.previousReps != null
+                ? `${s.previousWeight}×${s.previousReps}`
+                : '',
           })),
-          notes: todaySessionLog.notes || '',
         }
       : null;
 
     return res.json({
       success: true,
-      message: 'Exercise detail',
+      message: 'Performance saved',
       result: {
         date: normalizedDate,
-        schedule: {
-          weekNumber: weekNum,
-          weekCount: maxWeek,
-          dayKey,
-          slotLabel: inferred.scheduleToken,
-          workoutTitle: inferred.workoutTitle || program.programName,
-        },
-        exercise,
-        previous_performance: previousPerformance,
-        /** Today’s logged sets (same exerciseName in WorkoutLog) */
-        today_session: todaySession,
-        meta: { resolutionStrategy, dataSource: 'program.exerciseLibrary' },
+        slot_key: ctx.slot.slotKey,
+        exercise_name: exerciseName,
+        today_saved_log,
       },
     });
   } catch (err) {
@@ -853,4 +1059,5 @@ module.exports = {
   getActiveProgramForUser: getSelectedProgramForUser,
   getTodayWorkout,
   getTodayExerciseDetailFromProgram,
+  saveTodayExercisePerformance,
 };
