@@ -536,9 +536,9 @@ const resolveTodaysExerciseSlots = (program, programStartedAt, refDate, programI
 
   // Rest / Recovery cadence tokens should never resolve to a workout library —
   // otherwise loose substring matches can leak the wrong day's exercises.
-  // For RECOVERY days we build slots from program.recoveryProtocol so the user
-  // still gets actionable items (cardio + stretches). REST stays empty.
-  if (dayType === 'rest') {
+  // Both keep exercises[] empty; RECOVERY days surface content via a separate
+  // `recovery` block (cardio + stretches) attached to the response.
+  if (dayType !== 'workout') {
     return {
       slots: [],
       inferred,
@@ -546,20 +546,7 @@ const resolveTodaysExerciseSlots = (program, programStartedAt, refDate, programI
       maxWeek,
       dayKey,
       exerciseLibrary,
-      resolutionStrategy: 'rest',
-      dayType,
-    };
-  }
-  if (dayType === 'recovery') {
-    const recoverySlots = buildRecoverySlotsFromProgram(program, programIdStr);
-    return {
-      slots: recoverySlots,
-      inferred,
-      weekNum,
-      maxWeek,
-      dayKey,
-      exerciseLibrary,
-      resolutionStrategy: 'recovery',
+      resolutionStrategy: dayType,
       dayType,
     };
   }
@@ -744,13 +731,16 @@ const loadTodayExerciseContext = async (user_id, slotKey, refDateInput) => {
     refDate,
     programIdStr
   );
-  if (dayType === 'rest') {
+  if (dayType && dayType !== 'workout') {
     return {
       error: {
         status: 400,
         body: {
           success: false,
-          message: 'Today is a REST day — no exercises scheduled.',
+          message:
+            dayType === 'rest'
+              ? 'Today is a REST day — no exercises scheduled.'
+              : 'Today is a RECOVERY day — use the `recovery` block from GET /workouts/today.',
           day_type: dayType,
         },
       },
@@ -1120,6 +1110,81 @@ const getTodayWorkout = async (req, res) => {
 const getTodayExerciseDetailFromProgram = async (req, res) => {
   try {
     const user_id = req.token?._id;
+    const refDate = req.query.date ? new Date(req.query.date) : new Date();
+    if (Number.isNaN(refDate.getTime())) {
+      return res.status(400).json({ success: false, message: 'Invalid date query' });
+    }
+
+    const user = await User.findById(user_id)
+      .select('activeProgramId programStartedAt')
+      .lean();
+    if (!user) {
+      return res.status(400).json({ success: false, message: 'User not found' });
+    }
+    if (!user.activeProgramId || !user.programStartedAt) {
+      return res.status(400).json({
+        success: false,
+        message: 'No active program. POST /api/user/programs/active with programId first.',
+      });
+    }
+
+    const program = await Program.findOne({
+      _id: user.activeProgramId,
+      status: 'Active',
+    }).lean();
+    if (!program) {
+      return res.status(404).json({
+        success: false,
+        message: 'Active program no longer exists',
+      });
+    }
+
+    const programIdStr = String(program._id);
+    const { slots, inferred, weekNum, maxWeek, dayKey, dayType } =
+      resolveTodaysExerciseSlots(program, user.programStartedAt, refDate, programIdStr);
+
+    const normalizedDate = normalizeCalendarDate(refDate);
+    const scheduleContext = {
+      week_number: weekNum,
+      week_count: maxWeek,
+      day_key: dayKey,
+      slot_label: inferred.scheduleToken,
+    };
+
+    // RECOVERY day → return recovery payload so the same screen can render it.
+    if (dayType === 'recovery') {
+      return res.json({
+        success: true,
+        message: 'Recovery day',
+        result: {
+          date: normalizedDate,
+          workout_title: inferred.workoutTitle || 'RECOVERY',
+          day_type: 'recovery',
+          is_rest_day: false,
+          is_recovery_day: true,
+          schedule_context: scheduleContext,
+          recovery: buildRecoveryPayloadForResponse(req, program),
+        },
+      });
+    }
+
+    // REST day → no exercise content, just the day flags.
+    if (dayType === 'rest') {
+      return res.json({
+        success: true,
+        message: 'Rest day',
+        result: {
+          date: normalizedDate,
+          workout_title: inferred.workoutTitle || 'REST',
+          day_type: 'rest',
+          is_rest_day: true,
+          is_recovery_day: false,
+          schedule_context: scheduleContext,
+        },
+      });
+    }
+
+    // Workout day → slotKey required, look up the slot.
     const slotKey = String(req.query.slotKey || '').trim();
     if (!slotKey) {
       return res.status(400).json({
@@ -1127,33 +1192,36 @@ const getTodayExerciseDetailFromProgram = async (req, res) => {
         message: 'Query slotKey is required (use slotKey from GET /workouts/today)',
       });
     }
-
-    const refDate = req.query.date ? new Date(req.query.date) : new Date();
-    const ctx = await loadTodayExerciseContext(user_id, slotKey, refDate);
-    if (ctx.error) return res.status(ctx.error.status).json(ctx.error.body);
+    const slot = slots.find((s) => s.slotKey === slotKey);
+    if (!slot) {
+      return res.status(404).json({
+        success: false,
+        message: 'Exercise not in today’s program list (check slotKey from GET /workouts/today)',
+      });
+    }
 
     const completion = await DailyExerciseCompletion.findOne({
       userId: user_id,
-      date: ctx.normalizedDate,
+      date: normalizedDate,
     }).lean();
     const doneKeys = new Set(
       (completion?.completedSlotKeys || []).map((k) => String(k).trim()).filter(Boolean)
     );
 
     const [previousPerformance, todaySessionLog] = await Promise.all([
-      getPreviousPerformanceForExercise(user_id, ctx.slot.name, ctx.normalizedDate),
-      getTodaysWorkoutLogForExercise(user_id, ctx.slot.name, ctx.normalizedDate),
+      getPreviousPerformanceForExercise(user_id, slot.name, normalizedDate),
+      getTodaysWorkoutLogForExercise(user_id, slot.name, normalizedDate),
     ]);
 
     const result = buildTodayExerciseDetailScreen(req, {
-      program: ctx.program,
-      slot: ctx.slot,
-      inferred: ctx.inferred,
-      weekNum: ctx.weekNum,
-      maxWeek: ctx.maxWeek,
-      dayKey: ctx.dayKey,
-      normalizedDate: ctx.normalizedDate,
-      completed: doneKeys.has(ctx.slot.slotKey),
+      program,
+      slot,
+      inferred,
+      weekNum,
+      maxWeek,
+      dayKey,
+      normalizedDate,
+      completed: doneKeys.has(slot.slotKey),
       previousPerformance,
       todaySessionLog,
     });
