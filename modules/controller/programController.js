@@ -3,7 +3,9 @@ const Program = require('../model/programModel');
 const User = require('../model/userModel');
 const {
   mergeRecoveryMediaUploads,
+  mergeLibraryMediaUploads,
   rewriteProgramMediaUrlsForResponse,
+  stripBlobMediaUrls,
 } = require('../../utils/programMediaUrls');
 
 const parseJsonIfString = (value, fallback) => {
@@ -231,6 +233,9 @@ const addProgram = async (req, res) => {
     }
 
     mergeRecoveryMediaUploads(req, recoveryProtocolParsed);
+    mergeLibraryMediaUploads(req, exerciseLibraryParsed);
+    stripBlobMediaUrls(exerciseLibraryParsed);
+    stripBlobMediaUrls(recoveryProtocolParsed);
 
     const skillAllowed = ['Beginner', 'Intermediate', 'Advanced', 'Any', 'Beg / Int'];
     if (!skillAllowed.includes(workoutSkillLevel)) {
@@ -605,6 +610,9 @@ const updateProgram = async (req, res) => {
       }
 
       mergeRecoveryMediaUploads(req, recoveryProtocolParsed);
+      mergeLibraryMediaUploads(req, exerciseLibraryParsed);
+      stripBlobMediaUrls(exerciseLibraryParsed);
+      stripBlobMediaUrls(recoveryProtocolParsed);
 
       program.weekGrid = weekGridParsed;
       program.exerciseLibrary = exerciseLibraryParsed;

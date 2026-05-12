@@ -178,6 +178,7 @@ router.post(
     { name: 'video', maxCount: 1 },
     { name: 'media', maxCount: 1 },
     { name: 'recovery_media', maxCount: 20 },
+    { name: 'library_media', maxCount: 100 },
   ]),
   addProgram
 );
@@ -190,6 +191,7 @@ router.post(
     { name: 'video', maxCount: 1 },
     { name: 'media', maxCount: 1 },
     { name: 'recovery_media', maxCount: 20 },
+    { name: 'library_media', maxCount: 100 },
   ]),
   updateProgram
 );
@@ -200,6 +202,7 @@ router.put(
     { name: 'video', maxCount: 1 },
     { name: 'media', maxCount: 1 },
     { name: 'recovery_media', maxCount: 20 },
+    { name: 'library_media', maxCount: 100 },
   ]),
   updateProgram
 );

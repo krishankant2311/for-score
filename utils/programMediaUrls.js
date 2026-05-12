@@ -100,6 +100,64 @@ const mergeRecoveryMediaUploads = (req, recoveryProtocolObj) => {
   });
 };
 
+/**
+ * multipart field `library_media` (multiple files).
+ * Required `library_media_targets` JSON array of dot-paths — same length & order
+ * as files. Each dot-path points inside `exerciseLibrary`, e.g.:
+ *   ["A.0.thumbnail_url","A.1.video_url","B.0.thumbnail_url","UPPER.0.thumbnail_url"]
+ *
+ * Files without a matching target are ignored (no implicit append because the
+ * library is a nested object, not a flat array).
+ */
+const mergeLibraryMediaUploads = (req, exerciseLibraryObj) => {
+  if (!exerciseLibraryObj || typeof exerciseLibraryObj !== 'object') return;
+  const raw = req.files?.library_media;
+  const files = Array.isArray(raw) ? raw : raw ? [raw] : [];
+  if (!files.length) return;
+
+  let targets = null;
+  try {
+    const t = req.body?.library_media_targets;
+    if (t != null && String(t).trim()) targets = JSON.parse(String(t));
+  } catch (_) {
+    targets = null;
+  }
+  if (!Array.isArray(targets) || !targets.length) return;
+
+  files.forEach((file, i) => {
+    if (!file?.path || !targets[i]) return;
+    const rel = filePathToWebPath(file.path);
+    if (!rel) return;
+    try {
+      setByPath(exerciseLibraryObj, String(targets[i]).trim(), rel);
+    } catch (_) {
+      /* ignore bad path key */
+    }
+  });
+};
+
+/**
+ * Wipes browser-only `blob:` URLs from nested `thumbnail_url` / `video_url` /
+ * `media_url` / `thumbnailUrl` / `videoUrl` / `mediaUrl` fields. These leak in
+ * when admin frontend forgets to upload the actual file before submit.
+ */
+const stripBlobMediaUrls = (node) => {
+  if (node == null) return node;
+  if (Array.isArray(node)) {
+    node.forEach((item) => stripBlobMediaUrls(item));
+    return node;
+  }
+  if (typeof node !== 'object') return node;
+  for (const [k, v] of Object.entries(node)) {
+    if (typeof v === 'string' && /^blob:/i.test(v.trim())) {
+      node[k] = '';
+    } else if (v && typeof v === 'object') {
+      stripBlobMediaUrls(v);
+    }
+  }
+  return node;
+};
+
 const rewriteProgramMediaUrlsForResponse = (req, program) => {
   if (!program) return program;
   const out =
@@ -123,6 +181,8 @@ const rewriteProgramMediaUrlsForResponse = (req, program) => {
 
 module.exports = {
   mergeRecoveryMediaUploads,
+  mergeLibraryMediaUploads,
   rewriteProgramMediaUrlsForResponse,
   filePathToWebPath,
+  stripBlobMediaUrls,
 };
