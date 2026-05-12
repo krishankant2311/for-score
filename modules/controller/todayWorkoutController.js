@@ -79,7 +79,13 @@ const libraryLookup = (exerciseLibrary, token) => {
   const lower = t.toLowerCase();
   for (const key of Object.keys(exerciseLibrary)) {
     if (String(key).toLowerCase() === lower) return exerciseLibrary[key];
-    if (lower.includes(String(key).toLowerCase()) || String(key).toLowerCase().includes(lower)) {
+  }
+  // Substring fallback only for keys with >= 3 chars, so single-letter buckets
+  // like "A"/"B"/"C" can't spuriously match tokens like "RECOVERY"/"REST".
+  for (const key of Object.keys(exerciseLibrary)) {
+    const keyLower = String(key).toLowerCase();
+    if (keyLower.length < 3) continue;
+    if (lower.includes(keyLower) || keyLower.includes(lower)) {
       return exerciseLibrary[key];
     }
   }
@@ -105,9 +111,21 @@ const guessLibraryFromScheduleToken = (exerciseLibrary, token) => {
   for (const libKey of Object.keys(exerciseLibrary)) {
     const kc = libKey.replace(/_/g, '').toLowerCase();
     if (!kc || kc === 'alternatives' || kc === 'cardio') continue;
-    if (kc === compact || compact.includes(kc) || kc.includes(compact)) return exerciseLibrary[libKey];
+    if (kc === compact) return exerciseLibrary[libKey];
+    if (kc.length < 3) continue;
+    if (compact.includes(kc) || kc.includes(compact)) return exerciseLibrary[libKey];
   }
   return null;
+};
+
+const isCadenceRestToken = (token) =>
+  /^rest$/i.test(String(token || '').trim());
+const isCadenceRecoveryToken = (token) =>
+  /^recover(y|ies)?$/i.test(String(token || '').trim());
+const classifyCadenceDayType = (token) => {
+  if (isCadenceRestToken(token)) return 'rest';
+  if (isCadenceRecoveryToken(token)) return 'recovery';
+  return 'workout';
 };
 
 const firstFiniteNumber = (...vals) => {
@@ -429,6 +447,23 @@ const resolveTodaysExerciseSlots = (program, programStartedAt, refDate, programI
   const { weekNum, maxWeek } = resolveWeekNumber(program, weekGrid, refDate, programStartedAt);
 
   const inferred = inferScheduleStrategy(weekGrid, weekNum, dayKey, program);
+  const dayType = classifyCadenceDayType(inferred.scheduleToken);
+
+  // Rest / Recovery cadence tokens should never resolve to a workout library —
+  // otherwise loose substring matches can leak the wrong day's exercises.
+  if (dayType !== 'workout') {
+    return {
+      slots: [],
+      inferred,
+      weekNum,
+      maxWeek,
+      dayKey,
+      exerciseLibrary,
+      resolutionStrategy: dayType,
+      dayType,
+    };
+  }
+
   let listRaw = libraryLookup(exerciseLibrary, inferred.libraryToken);
   if (!listRaw && inferred.scheduleToken) {
     listRaw = libraryLookup(exerciseLibrary, inferred.scheduleToken);
@@ -479,6 +514,46 @@ const resolveTodaysExerciseSlots = (program, programStartedAt, refDate, programI
     dayKey,
     exerciseLibrary,
     resolutionStrategy,
+    dayType,
+  };
+};
+
+const buildRecoveryPayloadForResponse = (req, program) => {
+  const protocol =
+    program && program.recoveryProtocol && typeof program.recoveryProtocol === 'object'
+      ? program.recoveryProtocol
+      : null;
+  if (!protocol) return null;
+
+  const cardio =
+    protocol.cardio && typeof protocol.cardio === 'object' ? protocol.cardio : null;
+  const stretches = Array.isArray(protocol.stretches) ? protocol.stretches : [];
+
+  const cardioMediaPath = cardio
+    ? String(cardio.media_url ?? cardio.mediaUrl ?? cardio.video_url ?? '').trim()
+    : '';
+
+  return {
+    cardio: cardio
+      ? {
+          duration_minutes: firstFiniteNumber(cardio.durationMinutes, cardio.duration_minutes),
+          coach_prompt: String(cardio.coachPrompt ?? cardio.coach_prompt ?? '').trim(),
+          activity_options: Array.isArray(cardio.activityOptions)
+            ? cardio.activityOptions
+                .map((x) => String(x).trim())
+                .filter(Boolean)
+            : Array.isArray(cardio.activity_options)
+            ? cardio.activity_options
+                .map((x) => String(x).trim())
+                .filter(Boolean)
+            : [],
+          media_url: cardioMediaPath ? toPublicFileUrl(req, cardioMediaPath) : '',
+        }
+      : null,
+    stretches: stretches.map((s) => ({
+      name: String(s?.name ?? '').trim(),
+      detail: String(s?.detail ?? '').trim(),
+    })),
   };
 };
 
@@ -563,12 +638,27 @@ const loadTodayExerciseContext = async (user_id, slotKey, refDateInput) => {
     };
   }
   const programIdStr = String(program._id);
-  const { slots, inferred, weekNum, maxWeek, dayKey } = resolveTodaysExerciseSlots(
+  const { slots, inferred, weekNum, maxWeek, dayKey, dayType } = resolveTodaysExerciseSlots(
     program,
     user.programStartedAt,
     refDate,
     programIdStr
   );
+  if (dayType && dayType !== 'workout') {
+    return {
+      error: {
+        status: 400,
+        body: {
+          success: false,
+          message:
+            dayType === 'rest'
+              ? 'Today is a REST day — no exercises scheduled.'
+              : 'Today is a RECOVERY day — open recovery protocol instead of exercise detail.',
+          day_type: dayType,
+        },
+      },
+    };
+  }
   const slot = slots.find((s) => s.slotKey === key);
   if (!slot) {
     return {
@@ -850,7 +940,7 @@ const getTodayWorkout = async (req, res) => {
     }
 
     const programIdStr = String(program._id);
-    const { slots, inferred } = resolveTodaysExerciseSlots(
+    const { slots, inferred, dayType } = resolveTodaysExerciseSlots(
       program,
       user.programStartedAt,
       refDate,
@@ -874,7 +964,7 @@ const getTodayWorkout = async (req, res) => {
     const completedCount = exercises.filter((e) => e.completed).length;
     const completionPercent = exerciseCount ? Math.round((completedCount / exerciseCount) * 100) : 0;
 
-    const estimatedMinutes = estimateSessionMinutes(slots, program);
+    const estimatedMinutes = exerciseCount ? estimateSessionMinutes(slots, program) : 0;
     const sumCals = slots.reduce(
       (a, s) =>
         a +
@@ -895,21 +985,30 @@ const getTodayWorkout = async (req, res) => {
 
     const workoutTitle = inferred.workoutTitle || program.programName || '';
 
+    const result = {
+      date: normalizedDate,
+      workout_title: workoutTitle,
+      day_type: dayType,
+      is_rest_day: dayType === 'rest',
+      is_recovery_day: dayType === 'recovery',
+      summary: {
+        total_exercises: exerciseCount,
+        completed_exercises: completedCount,
+        completion_percent: completionPercent,
+        estimated_minutes: estimatedMinutes,
+        estimated_calories: estimatedCalories != null ? estimatedCalories : 0,
+      },
+      exercises,
+    };
+
+    if (dayType === 'recovery') {
+      result.recovery = buildRecoveryPayloadForResponse(req, program);
+    }
+
     return res.json({
       success: true,
       message: "Today's workout",
-      result: {
-        date: normalizedDate,
-        workout_title: workoutTitle,
-        summary: {
-          total_exercises: exerciseCount,
-          completed_exercises: completedCount,
-          completion_percent: completionPercent,
-          estimated_minutes: estimatedMinutes,
-          estimated_calories: estimatedCalories != null ? estimatedCalories : 0,
-        },
-        exercises,
-      },
+      result,
     });
   } catch (err) {
     console.error(err);
