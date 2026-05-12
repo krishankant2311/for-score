@@ -128,6 +128,91 @@ const classifyCadenceDayType = (token) => {
   return 'workout';
 };
 
+/**
+ * Builds virtual exercise slots from program.recoveryProtocol so the user can
+ * see/complete a cardio item + stretches on RECOVERY days using the exact same
+ * UI/flow (slotKey, completion, detail) as workout days.
+ */
+const buildRecoverySlotsFromProgram = (program, programIdStr) => {
+  const protocol =
+    program && program.recoveryProtocol && typeof program.recoveryProtocol === 'object'
+      ? program.recoveryProtocol
+      : null;
+  if (!protocol) return [];
+
+  const slots = [];
+  let order = 1;
+
+  const cardio =
+    protocol.cardio && typeof protocol.cardio === 'object' ? protocol.cardio : null;
+  if (cardio) {
+    const durationMin = firstFiniteNumber(
+      cardio.durationMinutes,
+      cardio.duration_minutes,
+      cardio.duration
+    );
+    const coachPrompt = String(cardio.coachPrompt ?? cardio.coach_prompt ?? '').trim();
+    const activityOptions = Array.isArray(cardio.activityOptions)
+      ? cardio.activityOptions
+      : Array.isArray(cardio.activity_options)
+      ? cardio.activity_options
+      : [];
+    const instructions = [];
+    if (coachPrompt) instructions.push(coachPrompt);
+    activityOptions
+      .map((x) => String(x).trim())
+      .filter(Boolean)
+      .forEach((opt) => instructions.push(`Option: ${opt}`));
+
+    const mediaPath = String(
+      cardio.media_url ?? cardio.mediaUrl ?? cardio.video_url ?? ''
+    ).trim();
+    const isVideo = /\.(mp4|mov|webm|m4v)(\?.*)?$/i.test(mediaPath);
+
+    slots.push({
+      order: order++,
+      slotKey: 'recovery_cardio',
+      name: 'Recovery Cardio',
+      targetSets: null,
+      durationMin: durationMin != null ? durationMin : null,
+      caloriesEstimate: null,
+      difficultyLevel: null,
+      repRangeStr: null,
+      muscles: ['cardio'],
+      instructionsList: instructions,
+      videoPath: isVideo ? mediaPath : '',
+      thumbPath: isVideo ? '' : mediaPath,
+      mediaType: isVideo ? 'video' : mediaPath ? 'image' : '',
+      notes: '',
+    });
+  }
+
+  const stretches = Array.isArray(protocol.stretches) ? protocol.stretches : [];
+  stretches.forEach((s, idx) => {
+    const name = String(s?.name ?? '').trim() || `Stretch ${idx + 1}`;
+    const detail = String(s?.detail ?? '').trim();
+    const slug = slugKey(name) || `stretch_${idx + 1}`;
+    slots.push({
+      order: order++,
+      slotKey: `recovery_stretch_${idx + 1}_${slug}`,
+      name,
+      targetSets: null,
+      durationMin: null,
+      caloriesEstimate: null,
+      difficultyLevel: null,
+      repRangeStr: null,
+      muscles: ['stretch'],
+      instructionsList: detail ? [detail] : [],
+      videoPath: '',
+      thumbPath: '',
+      mediaType: '',
+      notes: '',
+    });
+  });
+
+  return slots;
+};
+
 const firstFiniteNumber = (...vals) => {
   for (const v of vals) {
     if (v === '' || v == null) continue;
@@ -451,7 +536,9 @@ const resolveTodaysExerciseSlots = (program, programStartedAt, refDate, programI
 
   // Rest / Recovery cadence tokens should never resolve to a workout library —
   // otherwise loose substring matches can leak the wrong day's exercises.
-  if (dayType !== 'workout') {
+  // For RECOVERY days we build slots from program.recoveryProtocol so the user
+  // still gets actionable items (cardio + stretches). REST stays empty.
+  if (dayType === 'rest') {
     return {
       slots: [],
       inferred,
@@ -459,7 +546,20 @@ const resolveTodaysExerciseSlots = (program, programStartedAt, refDate, programI
       maxWeek,
       dayKey,
       exerciseLibrary,
-      resolutionStrategy: dayType,
+      resolutionStrategy: 'rest',
+      dayType,
+    };
+  }
+  if (dayType === 'recovery') {
+    const recoverySlots = buildRecoverySlotsFromProgram(program, programIdStr);
+    return {
+      slots: recoverySlots,
+      inferred,
+      weekNum,
+      maxWeek,
+      dayKey,
+      exerciseLibrary,
+      resolutionStrategy: 'recovery',
       dayType,
     };
   }
@@ -644,16 +744,13 @@ const loadTodayExerciseContext = async (user_id, slotKey, refDateInput) => {
     refDate,
     programIdStr
   );
-  if (dayType && dayType !== 'workout') {
+  if (dayType === 'rest') {
     return {
       error: {
         status: 400,
         body: {
           success: false,
-          message:
-            dayType === 'rest'
-              ? 'Today is a REST day — no exercises scheduled.'
-              : 'Today is a RECOVERY day — open recovery protocol instead of exercise detail.',
+          message: 'Today is a REST day — no exercises scheduled.',
           day_type: dayType,
         },
       },
