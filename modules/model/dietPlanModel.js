@@ -5,7 +5,14 @@ const dietPlanSchema = new mongoose.Schema(
     mealType: {
       type: String,
       required: true,
-      enum: ['Breakfast', 'Lunch', 'Dinner', 'Snacks'],
+      enum: [
+        'Breakfast',
+        'Morning Snack',
+        'Lunch',
+        'Evening Snack',
+        'Dinner',
+        'Snacks',
+      ],
     },
     foodItems: {
       type: String,

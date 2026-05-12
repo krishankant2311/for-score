@@ -1,5 +1,12 @@
 const { toPublicFileUrl } = require('./publicFileUrl');
 
+/** Persist full public URL (same shape as API responses) so DB rows work from Render/mobile. */
+const persistedUploadPublicUrl = (req, multerDiskPath) => {
+  if (!multerDiskPath) return '';
+  const url = toPublicFileUrl(req, multerDiskPath);
+  return url || String(multerDiskPath).trim();
+};
+
 const filePathToWebPath = (absPath) => {
   if (!absPath) return '';
   const n = String(absPath).replace(/\\/g, '/').trim();
@@ -81,10 +88,10 @@ const mergeRecoveryMediaUploads = (req, recoveryProtocolObj) => {
   if (Array.isArray(targets) && targets.length) {
     files.forEach((file, i) => {
       if (!file?.path || !targets[i]) return;
-      const rel = filePathToWebPath(file.path);
-      if (!rel) return;
+      const url = persistedUploadPublicUrl(req, file.path);
+      if (!url) return;
       try {
-        setByPath(recoveryProtocolObj, String(targets[i]).trim(), rel);
+        setByPath(recoveryProtocolObj, String(targets[i]).trim(), url);
       } catch (_) {
         /* ignore bad path key */
       }
@@ -95,8 +102,8 @@ const mergeRecoveryMediaUploads = (req, recoveryProtocolObj) => {
   if (!recoveryProtocolObj.media_urls) recoveryProtocolObj.media_urls = [];
   files.forEach((file) => {
     if (!file?.path) return;
-    const rel = filePathToWebPath(file.path);
-    if (rel) recoveryProtocolObj.media_urls.push(rel);
+    const url = persistedUploadPublicUrl(req, file.path);
+    if (url) recoveryProtocolObj.media_urls.push(url);
   });
 };
 
@@ -126,10 +133,10 @@ const mergeLibraryMediaUploads = (req, exerciseLibraryObj) => {
 
   files.forEach((file, i) => {
     if (!file?.path || !targets[i]) return;
-    const rel = filePathToWebPath(file.path);
-    if (!rel) return;
+    const url = persistedUploadPublicUrl(req, file.path);
+    if (!url) return;
     try {
-      setByPath(exerciseLibraryObj, String(targets[i]).trim(), rel);
+      setByPath(exerciseLibraryObj, String(targets[i]).trim(), url);
     } catch (_) {
       /* ignore bad path key */
     }

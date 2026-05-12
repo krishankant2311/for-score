@@ -35,7 +35,15 @@ const foodSchema = new mongoose.Schema(
     },
     mealType: {
       type: String,
-      enum: ['Breakfast', 'Lunch', 'Snack', 'Dinner', 'Other'],
+      enum: [
+        'Breakfast',
+        'Morning Snack',
+        'Lunch',
+        'Evening Snack',
+        'Snack',
+        'Dinner',
+        'Other',
+      ],
       default: 'Other',
     },
     servingSize: {

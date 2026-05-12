@@ -42,11 +42,19 @@ const addNutritionItem = async (req, res) => {
       });
     }
 
-    const allowedCategories = ['Breakfast', 'Lunch', 'Dinner', 'Snack'];
+    const allowedCategories = [
+      'Breakfast',
+      'Morning Snack',
+      'Lunch',
+      'Evening Snack',
+      'Snack',
+      'Dinner',
+    ];
     if (!allowedCategories.includes(category)) {
       return res.status(400).json({
         success: false,
-        message: 'category must be Breakfast, Lunch, Dinner or Snack',
+        message:
+          'category must be Breakfast, Morning Snack, Lunch, Evening Snack, Dinner or Snack',
       });
     }
 
@@ -114,7 +122,12 @@ const getAllNutritionItems = async (req, res) => {
       const regex = new RegExp(search.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&'), 'i');
       query.name = regex;
     }
-    if (category && ['Breakfast', 'Lunch', 'Dinner', 'Snack'].includes(category)) {
+    if (
+      category &&
+      ['Breakfast', 'Morning Snack', 'Lunch', 'Evening Snack', 'Snack', 'Dinner'].includes(
+        category
+      )
+    ) {
       query.category = category;
     }
     if (mealType && ['Vegetarian', 'Non-Vegetarian', 'Vegan'].includes(mealType)) {
@@ -219,7 +232,12 @@ const updateNutritionItem = async (req, res) => {
     }
 
     if (name != null && name !== '') item.name = name.trim();
-    if (category && ['Breakfast', 'Lunch', 'Dinner', 'Snack'].includes(category)) {
+    if (
+      category &&
+      ['Breakfast', 'Morning Snack', 'Lunch', 'Evening Snack', 'Snack', 'Dinner'].includes(
+        category
+      )
+    ) {
       item.category = category;
     }
     if (mealType && ['Vegetarian', 'Non-Vegetarian', 'Vegan'].includes(mealType)) {

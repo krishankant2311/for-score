@@ -1,6 +1,7 @@
 const { Admin } = require('../model/adminModel');
 const Program = require('../model/programModel');
 const User = require('../model/userModel');
+const { toPublicFileUrl } = require('../../utils/publicFileUrl');
 const {
   mergeRecoveryMediaUploads,
   mergeLibraryMediaUploads,
@@ -147,6 +148,13 @@ const getProgramVideoPathFromRequest = (req) => {
   return '';
 };
 
+/** Store full public URL in DB (PUBLIC_BASE_URL + /uploads/...) like merged program media. */
+const normalizePersistedMediaUrl = (req, raw) => {
+  const s = raw != null ? String(raw).trim() : '';
+  if (!s) return '';
+  return toPublicFileUrl(req, s) || s;
+};
+
 // 1. Add Program
 const addProgram = async (req, res) => {
   try {
@@ -290,8 +298,10 @@ const addProgram = async (req, res) => {
       weekGrid: weekGridParsed,
       exerciseLibrary: exerciseLibraryParsed,
       recoveryProtocol: recoveryProtocolParsed,
-      videoPath:
-        getProgramVideoPathFromRequest(req) || (videoPath != null ? String(videoPath).trim() : ''),
+      videoPath: normalizePersistedMediaUrl(
+        req,
+        getProgramVideoPathFromRequest(req) || (videoPath != null ? String(videoPath).trim() : '')
+      ),
       status: statusVal,
     };
     syncQuickStatsFromProgramFields(doc);
@@ -585,9 +595,9 @@ const updateProgram = async (req, res) => {
     }
     const uploadedVideoPath = getProgramVideoPathFromRequest(req);
     if (uploadedVideoPath) {
-      program.videoPath = uploadedVideoPath;
+      program.videoPath = normalizePersistedMediaUrl(req, uploadedVideoPath);
     } else if (videoPath != null) {
-      program.videoPath = String(videoPath || '').trim();
+      program.videoPath = normalizePersistedMediaUrl(req, String(videoPath || '').trim());
     }
 
     // If any step-payload is provided, enforce that ALL 3 step-payloads are provided together.

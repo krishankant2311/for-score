@@ -30,11 +30,19 @@ const addDietPlan = async (req, res) => {
       });
     }
 
-    const mealAllowed = ['Breakfast', 'Lunch', 'Dinner', 'Snacks'];
+    const mealAllowed = [
+      'Breakfast',
+      'Morning Snack',
+      'Lunch',
+      'Evening Snack',
+      'Dinner',
+      'Snacks',
+    ];
     if (!mealAllowed.includes(mealType)) {
       return res.status(400).json({
         success: false,
-        message: 'mealType must be Breakfast, Lunch, Dinner or Snacks',
+        message:
+          'mealType must be Breakfast, Morning Snack, Lunch, Evening Snack, Dinner or Snacks',
       });
     }
 
@@ -204,7 +212,12 @@ const updateDietPlan = async (req, res) => {
       });
     }
 
-    if (mealType && ['Breakfast', 'Lunch', 'Dinner', 'Snacks'].includes(mealType)) {
+    if (
+      mealType &&
+      ['Breakfast', 'Morning Snack', 'Lunch', 'Evening Snack', 'Dinner', 'Snacks'].includes(
+        mealType
+      )
+    ) {
       dietPlan.mealType = mealType;
     }
     if (foodItems != null && foodItems !== '') dietPlan.foodItems = foodItems.trim();

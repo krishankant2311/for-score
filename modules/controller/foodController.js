@@ -3,7 +3,15 @@ const Food = require('../model/foodModel');
 const User = require('../model/userModel');
 
 const allowedCategories = ['Protein', 'Carbs', 'Vegetables', 'Fruit', 'Fats', 'Other'];
-const allowedMealTypes = ['Breakfast', 'Lunch', 'Snack', 'Dinner', 'Other'];
+const allowedMealTypes = [
+  'Breakfast',
+  'Morning Snack',
+  'Lunch',
+  'Evening Snack',
+  'Snack',
+  'Dinner',
+  'Other',
+];
 
 const buildPublicBaseUrl = (req) =>
   process.env.PUBLIC_BASE_URL?.trim() || `${req.protocol}://${req.get('host')}`;

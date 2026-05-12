@@ -921,7 +921,7 @@ const updateProfilePhoto = async (req, res) => {
       });
     }
 
-    user.profilePhoto = req.file.path;
+    user.profilePhoto = toPublicFileUrl(req, req.file.path) || req.file.path;
     await user.save();
 
     const result = user.toObject();

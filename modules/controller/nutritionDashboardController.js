@@ -362,46 +362,50 @@ const getSuggestedMenu = async (req, res) => {
       });
     }
 
-    const breakfast = await NutritionItem.find({
-      category: 'Breakfast',
-      status: 'Active',
-    })
-      .sort({ createdAt: -1 })
-      .limit(5)
-      .lean();
+    const [breakfast, morningSnacks, lunch, eveningSnacks, dinner, genericSnacks] =
+      await Promise.all([
+        NutritionItem.find({ category: 'Breakfast', status: 'Active' })
+          .sort({ createdAt: -1 })
+          .limit(5)
+          .lean(),
+        NutritionItem.find({ category: 'Morning Snack', status: 'Active' })
+          .sort({ createdAt: -1 })
+          .limit(5)
+          .lean(),
+        NutritionItem.find({ category: 'Lunch', status: 'Active' })
+          .sort({ createdAt: -1 })
+          .limit(5)
+          .lean(),
+        NutritionItem.find({ category: 'Evening Snack', status: 'Active' })
+          .sort({ createdAt: -1 })
+          .limit(5)
+          .lean(),
+        NutritionItem.find({ category: 'Dinner', status: 'Active' })
+          .sort({ createdAt: -1 })
+          .limit(5)
+          .lean(),
+        NutritionItem.find({ category: 'Snack', status: 'Active' })
+          .sort({ createdAt: -1 })
+          .limit(5)
+          .lean(),
+      ]);
 
-    const snacks = await NutritionItem.find({
-      category: 'Snack',
-      status: 'Active',
-    })
-      .sort({ createdAt: -1 })
-      .limit(5)
-      .lean();
-
-    const lunch = await NutritionItem.find({
-      category: 'Lunch',
-      status: 'Active',
-    })
-      .sort({ createdAt: -1 })
-      .limit(5)
-      .lean();
-
-    const dinner = await NutritionItem.find({
-      category: 'Dinner',
-      status: 'Active',
-    })
-      .sort({ createdAt: -1 })
-      .limit(5)
-      .lean();
+    // Legacy items tagged plain 'Snack' fall back to BOTH snack buckets so older
+    // admin data doesn't disappear from the UI after the split.
+    const morningSnacksFinal = morningSnacks.length ? morningSnacks : genericSnacks;
+    const eveningSnacksFinal = eveningSnacks.length ? eveningSnacks : genericSnacks;
 
     return res.json({
       success: true,
       message: 'Suggested menu fetched successfully',
       result: {
         breakfast,
-        snacks,
+        morningSnacks: morningSnacksFinal,
         lunch,
+        eveningSnacks: eveningSnacksFinal,
         dinner,
+        // Backward compatibility for older clients still reading `snacks`.
+        snacks: genericSnacks.length ? genericSnacks : [...morningSnacks, ...eveningSnacks],
       },
     });
   } catch (err) {
