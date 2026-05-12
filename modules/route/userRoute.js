@@ -231,7 +231,7 @@ router.get('/workouts/by-date', upload.none(), verifyAccessToken, getWorkoutLogs
 router.get('/workouts/summary', upload.none(), verifyAccessToken, getWorkoutSummaryByDate);
 router.get('/workouts/history', upload.none(), verifyAccessToken, getWorkoutHistoryByExercise);
 router.get('/workouts/today/completions', upload.none(), verifyAccessToken, getDailyExerciseCompletions);
-router.put('/workouts/today/completions', upload.none(), verifyAccessToken, putDailyExerciseCompletions);
+router.post('/workouts/today/completions', upload.none(), verifyAccessToken, putDailyExerciseCompletions);
 router.post(
   '/workouts/today/exercise/performance',
   upload.none(),

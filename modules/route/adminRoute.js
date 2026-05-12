@@ -151,14 +151,14 @@ router.post('/users/:id', upload.none(), verifyAccessToken, deleteUser);
 router.post('/diet-plans', upload.none(), verifyAccessToken, addDietPlan);
 router.get('/diet-plans', upload.none(), verifyAccessToken, getAllDietPlans);
 router.get('/diet-plans/:id', upload.none(), verifyAccessToken, getDietPlanById);
-router.put('/diet-plans/:id', upload.none(), verifyAccessToken, updateDietPlan);
+router.post('/diet-plans/:id', upload.none(), verifyAccessToken, updateDietPlan);
 router.delete('/diet-plans/:id', upload.none(), verifyAccessToken, deleteDietPlan);
 
 // Nutrition Items (Food catalog for plans)
 router.post('/add-nutrition-items', verifyAccessToken, upload.single('image'), addNutritionItem);
 router.get('/get-all-nutrition-items', upload.none(), verifyAccessToken, getAllNutritionItems);
 router.get('/get-nutrition-items/:id', upload.none(), verifyAccessToken, getNutritionItemById);
-router.put('/update-nutrition-items/:id', verifyAccessToken, upload.single('image'), updateNutritionItem);
+router.post('/update-nutrition-items/:id', verifyAccessToken, upload.single('image'), updateNutritionItem);
 router.delete('/delete-nutrition-items/:id', upload.none(), verifyAccessToken, deleteNutritionItem);
 router.get('/get-nutrition-items-stats', upload.none(), verifyAccessToken, getNutritionStats);
 
@@ -167,7 +167,7 @@ router.post('/add-recovery-content', verifyAccessToken, uploadExerciseMedia.sing
 router.get('/get-all-recovery-content', upload.none(), verifyAccessToken, getAllRecoveryContent);
 router.get('/get-recovery-content-stats', upload.none(), verifyAccessToken, getRecoveryContentStats);
 router.get('/get-recovery-content/:id', upload.none(), verifyAccessToken, getRecoveryContentById);
-router.put('/update-recovery-content/:id', verifyAccessToken, uploadExerciseMedia.single('media'), updateRecoveryContent);
+router.post('/update-recovery-content/:id', verifyAccessToken, uploadExerciseMedia.single('media'), updateRecoveryContent);
 router.delete('/delete-recovery-content/:id', upload.none(), verifyAccessToken, deleteRecoveryContent);
 
 // Programs (Workout Programs)
@@ -195,7 +195,7 @@ router.post(
   ]),
   updateProgram
 );
-router.put(
+router.post(
   '/programs/:id',
   verifyAccessToken,
   uploadExerciseMedia.fields([
