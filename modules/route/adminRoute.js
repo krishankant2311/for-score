@@ -170,43 +170,34 @@ router.get('/get-recovery-content/:id', upload.none(), verifyAccessToken, getRec
 router.post('/update-recovery-content/:id', verifyAccessToken, uploadExerciseMedia.single('media'), updateRecoveryContent);
 router.delete('/delete-recovery-content/:id', upload.none(), verifyAccessToken, deleteRecoveryContent);
 
-// Programs (Workout Programs)
-router.post(
-  '/add-programs',
-  verifyAccessToken,
-  uploadExerciseMedia.fields([
-    { name: 'video', maxCount: 1 },
-    { name: 'media', maxCount: 1 },
-    { name: 'recovery_media', maxCount: 20 },
-    { name: 'library_media', maxCount: 100 },
-  ]),
-  addProgram
-);
+// Programs (Workout Programs) — POST-only admin CRUD with media uploads.
+const programUpload = uploadExerciseMedia.fields([
+  { name: 'video', maxCount: 1 },
+  { name: 'media', maxCount: 1 },
+  { name: 'recovery_media', maxCount: 20 },
+  { name: 'library_media', maxCount: 100 },
+]);
+
+// List + read (legacy aliases preserved so frontend doesn't break)
+router.get('/programs', upload.none(), verifyAccessToken, getAllPrograms);
 router.get('/get-all-programs', upload.none(), verifyAccessToken, getAllPrograms);
 router.get('/programs/:id', upload.none(), verifyAccessToken, getProgramById);
-router.post(
-  '/update-programs/:id',
-  verifyAccessToken,
-  uploadExerciseMedia.fields([
-    { name: 'video', maxCount: 1 },
-    { name: 'media', maxCount: 1 },
-    { name: 'recovery_media', maxCount: 20 },
-    { name: 'library_media', maxCount: 100 },
-  ]),
-  updateProgram
-);
-router.post(
-  '/programs/:id',
-  verifyAccessToken,
-  uploadExerciseMedia.fields([
-    { name: 'video', maxCount: 1 },
-    { name: 'media', maxCount: 1 },
-    { name: 'recovery_media', maxCount: 20 },
-    { name: 'library_media', maxCount: 100 },
-  ]),
-  updateProgram
-);
+router.get('/program/:id', upload.none(), verifyAccessToken, getProgramById);
+router.get('/get-program-by-id/:id', upload.none(), verifyAccessToken, getProgramById);
+
+// Create
+router.post('/add-programs', verifyAccessToken, programUpload, addProgram);
+router.post('/add-program', verifyAccessToken, programUpload, addProgram);
+
+// Update
+router.post('/update-programs/:id', verifyAccessToken, programUpload, updateProgram);
+router.post('/update-program/:id', verifyAccessToken, programUpload, updateProgram);
+router.post('/programs/:id', verifyAccessToken, programUpload, updateProgram);
+
+// Soft delete
 router.post('/delete-program/:id', upload.none(), verifyAccessToken, deleteProgram);
+router.post('/delete-programs/:id', upload.none(), verifyAccessToken, deleteProgram);
+router.post('/delete-program', upload.none(), verifyAccessToken, deleteProgram);
 
 // Privacy Policy (Admin CRUD)
 router.post('/privacy-policy', upload.none(), verifyAccessToken, addPrivacyPolicy);

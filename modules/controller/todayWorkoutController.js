@@ -715,6 +715,7 @@ const loadTodayExerciseContext = async (user_id, slotKey, refDateInput) => {
   const program = await Program.findOne({
     _id: user.activeProgramId,
     status: 'Active',
+    isDeleted: { $ne: true },
   }).lean();
   if (!program) {
     return {
@@ -903,7 +904,11 @@ const selectActiveProgram = async (req, res) => {
       return res.status(400).json({ success: false, message: 'User not found' });
     }
 
-    const program = await Program.findOne({ _id: programId, status: 'Active' }).lean();
+    const program = await Program.findOne({
+      _id: programId,
+      status: 'Active',
+      isDeleted: { $ne: true },
+    }).lean();
     if (!program) {
       return res.status(404).json({
         success: false,
@@ -961,6 +966,7 @@ const getSelectedProgramForUser = async (req, res) => {
     const program = await Program.findOne({
       _id: user.activeProgramId,
       status: 'Active',
+      isDeleted: { $ne: true },
     }).lean();
 
     if (!program) {
@@ -1012,6 +1018,7 @@ const getTodayWorkout = async (req, res) => {
     const program = await Program.findOne({
       _id: user.activeProgramId,
       status: 'Active',
+      isDeleted: { $ne: true },
     }).lean();
 
     if (!program) {
@@ -1131,6 +1138,7 @@ const getTodayExerciseDetailFromProgram = async (req, res) => {
     const program = await Program.findOne({
       _id: user.activeProgramId,
       status: 'Active',
+      isDeleted: { $ne: true },
     }).lean();
     if (!program) {
       return res.status(404).json({

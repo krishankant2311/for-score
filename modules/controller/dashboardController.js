@@ -15,7 +15,9 @@ const countExercisesInLibrary = (lib) => {
 };
 
 const aggregateExerciseLibraryBuckets = async () => {
-  const programs = await Program.find({ status: 'Active' }).select('exerciseLibrary').lean();
+  const programs = await Program.find({ status: 'Active', isDeleted: { $ne: true } })
+    .select('exerciseLibrary')
+    .lean();
   const map = new Map();
   for (const p of programs) {
     const lib = p.exerciseLibrary;
@@ -147,7 +149,9 @@ const getAdminDashboard = async (req, res) => {
       ...dateMatch('date', from, to),
     });
     const embeddedExerciseStatsPromise = (async () => {
-      const allPrograms = await Program.find({ status: 'Active' }).select('exerciseLibrary createdAt').lean();
+      const allPrograms = await Program.find({ status: 'Active', isDeleted: { $ne: true } })
+        .select('exerciseLibrary createdAt')
+        .lean();
       const totalExercises = allPrograms.reduce((s, p) => s + countExercisesInLibrary(p.exerciseLibrary), 0);
       let exercisesAddedInRange = totalExercises;
       if (from && to) {
