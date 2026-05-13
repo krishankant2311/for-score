@@ -6,6 +6,17 @@ const { generateAccessToken } = require('../../middleware/jwt');
 const sendEmail = require('../service/mailService');
 const { getResetPasswordTemplate } = require('../service/resetPasswordTemplate');
 const { getSignupOtpTemplate } = require('../service/signupOtpTemplate');
+const { syncPrimaryWeightGoal } = require('./userGoalController');
+
+// Safe wrapper: dashboard goal sync must never break the profile-save flow.
+// We log the error and continue so the user still sees their profile update.
+const safeSyncWeightGoal = async (user) => {
+  try {
+    await syncPrimaryWeightGoal(user);
+  } catch (e) {
+    console.error('syncPrimaryWeightGoal failed:', e.message);
+  }
+};
 
 const SIGNUP_OTP_TTL_MS = 15 * 60 * 1000;
 const SIGNUP_OTP_RESEND_COOLDOWN_MS = 30 * 1000;
@@ -880,6 +891,8 @@ const updateUserProfile = async (req, res, next) => {
     }
 
     await user.save();
+    // Keep the auto-managed primary weight goal in sync with profile changes.
+    await safeSyncWeightGoal(user);
 
     const result = user.toObject();
     delete result.password;
@@ -1385,6 +1398,7 @@ const addWeight = async (req, res) => {
 
     user.weight = weightNum;
     await user.save();
+    await safeSyncWeightGoal(user);
 
     const result = user.toObject();
     delete result.password;
@@ -1608,6 +1622,7 @@ const addFitnessTarget = async (req, res) => {
 
     user.fitnessTarget = value;
     await user.save();
+    await safeSyncWeightGoal(user);
 
     const result = user.toObject();
     delete result.password;
@@ -1715,6 +1730,7 @@ const addTargetWeight = async (req, res) => {
 
     user.targetweight = value;
     await user.save();
+    await safeSyncWeightGoal(user);
 
     const result = user.toObject();
     delete result.password;

@@ -133,6 +133,22 @@ const {
   getPlanByIdForUser,
   selectPlanForUser,
 } = require('../controller/planController');
+const {
+  getUserDashboard,
+} = require('../controller/userDashboardController');
+const {
+  addGoal,
+  getAllGoals,
+  getGoalById,
+  updateGoal,
+  logGoalProgress,
+  setPrimaryGoal,
+  deleteGoal,
+} = require('../controller/userGoalController');
+const {
+  getWaterForDate,
+  upsertWaterLog,
+} = require('../controller/waterLogController');
 
 router.post('/signup', upload.none(), signup);
 router.post('/verify-signup-otp', upload.none(), verifySignupOtp);
@@ -269,5 +285,25 @@ router.get('/plans', upload.none(), verifyAccessToken, getAllPlansForUser);
 router.get('/plans/selected', upload.none(), verifyAccessToken, getSelectedPlanForUser);
 router.get('/plans/:id', upload.none(), verifyAccessToken, getPlanByIdForUser);
 router.post('/plans/select', upload.none(), verifyAccessToken, selectPlanForUser);
+
+// User Dashboard (home screen) — one call returns everything the mobile
+// dashboard needs: greeting, current program, today's workout, today's diet,
+// and the "Your Goals" card.
+router.get('/dashboard', upload.none(), verifyAccessToken, getUserDashboard);
+router.get('/home', upload.none(), verifyAccessToken, getUserDashboard); // alias
+
+// Goals (Your Goals card on dashboard)
+router.post('/goals', upload.none(), verifyAccessToken, addGoal);
+router.get('/goals', upload.none(), verifyAccessToken, getAllGoals);
+router.get('/goals/:id', upload.none(), verifyAccessToken, getGoalById);
+router.post('/goals/:id', upload.none(), verifyAccessToken, updateGoal);
+router.post('/goals/:id/progress', upload.none(), verifyAccessToken, logGoalProgress);
+router.post('/goals/:id/primary', upload.none(), verifyAccessToken, setPrimaryGoal);
+router.post('/goals/:id/delete', upload.none(), verifyAccessToken, deleteGoal);
+
+// Water log (Water tile on Today's Diet card)
+router.get('/water', upload.none(), verifyAccessToken, getWaterForDate);
+router.get('/water/today', upload.none(), verifyAccessToken, getWaterForDate);
+router.post('/water', upload.none(), verifyAccessToken, upsertWaterLog);
 
 module.exports = router;

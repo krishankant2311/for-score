@@ -1332,4 +1332,12 @@ module.exports = {
   getTodayWorkout,
   getTodayExerciseDetailFromProgram,
   saveTodayExercisePerformance,
+  // Helpers exported for reuse by the unified user dashboard controller so
+  // the dashboard "Today's Workout" card and the dedicated endpoint stay
+  // in sync without duplicating the slot resolution logic.
+  resolveTodaysExerciseSlots,
+  normalizeCalendarDate,
+  estimateSessionMinutes,
+  buildTodayWorkoutListItem,
+  buildRecoveryPayloadForResponse,
 };

@@ -185,9 +185,8 @@ router.get('/programs/:id', upload.none(), verifyAccessToken, getProgramById);
 router.get('/program/:id', upload.none(), verifyAccessToken, getProgramById);
 router.get('/get-program-by-id/:id', upload.none(), verifyAccessToken, getProgramById);
 
-// Create
+// Create (single endpoint)
 router.post('/add-programs', verifyAccessToken, programUpload, addProgram);
-router.post('/add-program', verifyAccessToken, programUpload, addProgram);
 
 // Update
 router.post('/update-programs/:id', verifyAccessToken, programUpload, updateProgram);
