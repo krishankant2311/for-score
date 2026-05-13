@@ -456,6 +456,39 @@ const getProgramByUserAndId = async (req, res) => {
 const getRecommendedProgramByUserProfile = async (req, res) => {
   try {
     const withMedia = (p) => rewriteProgramMediaUrlsForResponse(req, p);
+
+    const parsePositiveInt = (v, fallback) => {
+      const n = parseInt(v, 10);
+      return Number.isFinite(n) && n > 0 ? n : fallback;
+    };
+    const page = parsePositiveInt(req.query?.page, 1);
+    const rawLimit = parsePositiveInt(req.query?.limit, 10);
+    const limit = Math.min(rawLimit, 50);
+
+    const paginate = (list, ruleApplied) => {
+      const total = list.length;
+      const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
+      const safePage = totalPages === 0 ? 1 : Math.min(page, totalPages);
+      const startIdx = (safePage - 1) * limit;
+      const slice = list.slice(startIdx, startIdx + limit).map((p) => withMedia(p));
+      const top = list[0] ? withMedia(list[0]) : null;
+      return {
+        success: true,
+        message: 'Recommended programs fetched successfully',
+        result: slice,
+        top,
+        pagination: {
+          page: safePage,
+          limit,
+          total,
+          totalPages,
+          hasNext: safePage < totalPages,
+          hasPrev: safePage > 1,
+        },
+        meta: { ruleApplied },
+      };
+    };
+
     const user_id = req.token?._id;
     if (!user_id) {
       return res.status(401).json({ success: false, message: 'Unauthorized' });
@@ -489,21 +522,21 @@ const getRecommendedProgramByUserProfile = async (req, res) => {
     const hasTerm = (...terms) =>
       terms.some((term) => allPreferenceTerms.some((pref) => pref.includes(term)));
 
+    const sortByNewest = (a, b) =>
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+
     if (hasTerm('prenatal', 'postpartum')) {
-      const prenatal = activePrograms.find(
-        (p) =>
-          p.isPrenatalProgram === true ||
-          /prenatal|postpartum|radiant forge/i.test(
-            `${p.programName} ${p.programCode || ''}`
-          )
-      );
-      if (prenatal) {
-        return res.json({
-          success: true,
-          message: 'Recommended program fetched successfully',
-          result: withMedia(prenatal),
-          meta: { ruleApplied: 'SafetyFlagPrenatalPostpartum' },
-        });
+      const prenatalList = activePrograms
+        .filter(
+          (p) =>
+            p.isPrenatalProgram === true ||
+            /prenatal|postpartum|radiant forge/i.test(
+              `${p.programName} ${p.programCode || ''}`
+            )
+        )
+        .sort(sortByNewest);
+      if (prenatalList.length) {
+        return res.json(paginate(prenatalList, 'SafetyFlagPrenatalPostpartum'));
       }
     }
 
@@ -511,20 +544,17 @@ const getRecommendedProgramByUserProfile = async (req, res) => {
       (workoutDuration > 0 && workoutDuration < 20) ||
       hasTerm('quick', 'quickies', 'limited time', 'express')
     ) {
-      const quickie = activePrograms.find(
-        (p) =>
-          p.isQuickProgram === true ||
-          /15[- ]?minute|quick hits|quickies|express/i.test(
-            `${p.programName} ${p.programCode || ''}`
-          )
-      );
-      if (quickie) {
-        return res.json({
-          success: true,
-          message: 'Recommended program fetched successfully',
-          result: withMedia(quickie),
-          meta: { ruleApplied: 'QuickiePriority' },
-        });
+      const quickList = activePrograms
+        .filter(
+          (p) =>
+            p.isQuickProgram === true ||
+            /15[- ]?minute|quick hits|quickies|express/i.test(
+              `${p.programName} ${p.programCode || ''}`
+            )
+        )
+        .sort(sortByNewest);
+      if (quickList.length) {
+        return res.json(paginate(quickList, 'QuickiePriority'));
       }
     }
 
@@ -594,22 +624,10 @@ const getRecommendedProgramByUserProfile = async (req, res) => {
         /28-day full body foundations/i.test(p.programName)
       );
       if (fallback) {
-        return res.json({
-          success: true,
-          message: 'Recommended program fetched successfully',
-          result: withMedia(fallback),
-          meta: { ruleApplied: 'NoMatchFallback' },
-        });
+        return res.json(paginate([fallback], 'NoMatchFallback'));
       }
-      const latest = activePrograms.sort(
-        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      )[0];
-      return res.json({
-        success: true,
-        message: 'Recommended program fetched successfully',
-        result: withMedia(latest),
-        meta: { ruleApplied: 'LatestActiveFallback' },
-      });
+      const latestList = [...activePrograms].sort(sortByNewest);
+      return res.json(paginate(latestList, 'LatestActiveFallback'));
     }
 
     const scoreProgram = (p) => {
@@ -633,19 +651,15 @@ const getRecommendedProgramByUserProfile = async (req, res) => {
       return score;
     };
 
-    const recommended = candidates
+    const ranked = candidates
       .map((p) => ({ p, score: scoreProgram(p) }))
       .sort((a, b) => {
         if (b.score !== a.score) return b.score - a.score;
         return new Date(b.p.createdAt).getTime() - new Date(a.p.createdAt).getTime();
-      })[0]?.p;
+      })
+      .map((x) => x.p);
 
-    return res.json({
-      success: true,
-      message: 'Recommended program fetched successfully',
-      result: withMedia(recommended),
-      meta: { ruleApplied: 'ProfileMatch' },
-    });
+    return res.json(paginate(ranked, 'ProfileMatch'));
   } catch (err) {
     console.error(err);
     return res.status(500).json({
