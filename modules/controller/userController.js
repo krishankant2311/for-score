@@ -290,8 +290,10 @@ const signup = async (req, res, next) => {
           $unset: { signupOtp: '', signupOtpExpiry: '' },
         }
       );
+      const afterSignup = await User.findById(existingUser._id);
+      if (afterSignup) await safeSyncWeightGoal(afterSignup);
     } else {
-      await User.create({
+      const created = await User.create({
         name: name.trim(),
         email: emailTrimmed,
         password: hashedPassword,
@@ -299,6 +301,7 @@ const signup = async (req, res, next) => {
         ...profileUpdate,
         otp: { otpValue: otp, otpExpiry: otpExpiresAt, otpSentAt },
       });
+      await safeSyncWeightGoal(created);
     }
 
     const mailResult = await sendEmail(
@@ -495,6 +498,8 @@ const verifySignupOtp = async (req, res, next) => {
     );
 
     const fresh = await User.findById(user._id);
+    if (fresh) await safeSyncWeightGoal(fresh);
+
     const payload = { _id: fresh._id, email: fresh.email };
     const token = generateAccessToken(payload);
     const userObj = fresh.toObject();
