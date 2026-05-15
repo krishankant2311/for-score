@@ -42,6 +42,12 @@ const nutritionCheatSheetSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Admin',
     },
+    /** Set by seed scripts so re-run replaces the same rows without touching admin-added items */
+    seedSource: {
+      type: String,
+      default: '',
+      trim: true,
+    },
   },
   { timestamps: true }
 );

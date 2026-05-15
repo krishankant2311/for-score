@@ -57,6 +57,34 @@ const parseCsvString = (value) => {
     .filter(Boolean);
 };
 
+/** Fields loaded for recommendation engine + Change Program list card UI */
+const RECOMMENDED_PROGRAM_QUERY_SELECT =
+  '_id programName subHeader overview durationWeeks avgSessionMinutes videoPath workoutSkillLevel locationTag primaryGoal workoutPreference tags isGymRequired isHomeFriendly isQuickProgram isPrenatalProgram programCode daysPerWeek frequency createdAt';
+
+/** Slim payload for Change Program / recommended list (screenshot fields only) */
+const toRecommendedProgramListItem = (req, program) => {
+  const weeks = Math.max(0, Number(program.durationWeeks) || 0);
+  const totalDays = weeks > 0 ? weeks * 7 : 0;
+  const sessionMins = Math.max(0, Number(program.avgSessionMinutes) || 0);
+  const imageRaw = program.videoPath || '';
+  const description =
+    (program.subHeader && String(program.subHeader).trim()) ||
+    (program.overview && String(program.overview).trim()) ||
+    '';
+
+  return {
+    _id: program._id,
+    title: program.programName || '',
+    description,
+    imageUrl: imageRaw ? toPublicFileUrl(req, imageRaw) : '',
+    sessionDuration: sessionMins > 0 ? `${sessionMins} min` : '',
+    programDuration: totalDays > 0 ? `${totalDays} Days` : '',
+    durationWeeks: weeks || null,
+    avgSessionMinutes: sessionMins || null,
+    totalDays: totalDays || null,
+  };
+};
+
 const normalizePersistedMediaUrl = (req, raw) => {
   const s = raw != null ? String(raw).trim() : '';
   if (!s) return '';
@@ -455,7 +483,7 @@ const getProgramByUserAndId = async (req, res) => {
 
 const getRecommendedProgramByUserProfile = async (req, res) => {
   try {
-    const withMedia = (p) => rewriteProgramMediaUrlsForResponse(req, p);
+    const toListItem = (p) => toRecommendedProgramListItem(req, p);
 
     const parsePositiveInt = (v, fallback) => {
       const n = parseInt(v, 10);
@@ -470,8 +498,8 @@ const getRecommendedProgramByUserProfile = async (req, res) => {
       const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
       const safePage = totalPages === 0 ? 1 : Math.min(page, totalPages);
       const startIdx = (safePage - 1) * limit;
-      const slice = list.slice(startIdx, startIdx + limit).map((p) => withMedia(p));
-      const top = list[0] ? withMedia(list[0]) : null;
+      const slice = list.slice(startIdx, startIdx + limit).map(toListItem);
+      const top = list[0] ? toListItem(list[0]) : null;
       return {
         success: true,
         message: 'Recommended programs fetched successfully',
@@ -512,7 +540,9 @@ const getRecommendedProgramByUserProfile = async (req, res) => {
     const frequency = Number(user.workoutFrequency || 0);
     const workoutDuration = Number(user.workoutDuration || 0);
 
-    const activePrograms = await Program.find(userProgramFilter()).lean();
+    const activePrograms = await Program.find(userProgramFilter())
+      .select(RECOMMENDED_PROGRAM_QUERY_SELECT)
+      .lean();
     if (!activePrograms.length) {
       return res
         .status(404)

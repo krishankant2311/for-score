@@ -8,10 +8,12 @@ if (typeof dns.setDefaultResultOrder === 'function') {
 const app = require('./app');
 const connectDB = require('./config/database');
 const { createDefaultAdmin } = require('./modules/model/adminModel');
+const { ensureNutritionCheatSheetSeed } = require('./modules/service/nutritionCheatSheetSeed');
 const PORT = process.env.PORT || 3000;
 
 connectDB()
   .then(() => createDefaultAdmin())
+  .then(() => ensureNutritionCheatSheetSeed().catch((e) => console.error('Nutrition cheat sheet seed:', e.message)))
   .then(() => {
     app.listen(PORT, () => {
       console.log(`Server: http://localhost:${PORT}`);
