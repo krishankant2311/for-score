@@ -1946,7 +1946,6 @@ const addTrainingLocation = async (req, res) => {
 
     const result = user.toObject();
     delete result.password;
-
     return res.json({
       success: true,
       message: 'Training location added/updated successfully',

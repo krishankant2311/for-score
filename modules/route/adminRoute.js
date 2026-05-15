@@ -126,6 +126,13 @@ const {
   deleteFoodByAdmin,
 } = require('../controller/foodController');
 const { getAdminDashboard } = require('../controller/dashboardController');
+const {
+  addNutritionCheatSheetItem,
+  getAllNutritionCheatSheetAdmin,
+  getNutritionCheatSheetByIdAdmin,
+  updateNutritionCheatSheetItem,
+  deleteNutritionCheatSheetItem,
+} = require('../controller/nutritionCheatSheetController');
 
 router.post('/login', upload.none(), adminLogin);
 router.post('/logout', upload.none(), verifyAccessToken, logoutAdmin);
@@ -263,5 +270,12 @@ router.post('/delete-foods/:id', upload.none(), verifyAccessToken, deleteFoodByA
 // Notifications (Admin)
 router.post('/send-notification', upload.none(), verifyAccessToken, sendNotificationByAdmin);
 router.get('/get-all-notifications', upload.none(), verifyAccessToken, getAllNotificationsAdmin);
+
+// Nutrition Cheat Sheet (macro quick reference — admin CRUD)
+router.post('/nutrition-cheat-sheet', upload.none(), verifyAccessToken, addNutritionCheatSheetItem);
+router.get('/nutrition-cheat-sheet', upload.none(), verifyAccessToken, getAllNutritionCheatSheetAdmin);
+router.get('/nutrition-cheat-sheet/:id', upload.none(), verifyAccessToken, getNutritionCheatSheetByIdAdmin);
+router.post('/nutrition-cheat-sheet/:id', upload.none(), verifyAccessToken, updateNutritionCheatSheetItem);
+router.post('/delete-nutrition-cheat-sheet/:id', upload.none(), verifyAccessToken, deleteNutritionCheatSheetItem);
 
 module.exports = router;
