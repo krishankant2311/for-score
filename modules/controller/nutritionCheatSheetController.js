@@ -360,6 +360,54 @@ const getNutritionCheatSheetForUser = async (req, res) => {
   }
 };
 
+const getNutritionCheatSheetByIdForUser = async (req, res) => {
+  try {
+    const userId = getValidUserId(req.token);
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Unauthorized',
+      });
+    }
+
+    const user = await User.findById(userId).lean();
+    if (!user || user.status === 'Deleted') {
+      return res.status(400).json({
+        success: false,
+        message: 'User not found or inactive',
+      });
+    }
+
+    const { id } = req.params;
+    const item = await NutritionCheatSheet.findOne({ _id: id, status: 'Active' })
+      .select('name servingSize macroType macroAmountGrams calories sortOrder createdAt updatedAt')
+      .lean();
+
+    if (!item) {
+      return res.status(404).json({
+        success: false,
+        message: 'Nutrition cheat sheet item not found',
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: 'Nutrition cheat sheet item fetched successfully',
+      result: {
+        ...item,
+        sectionTitle: SECTION_BY_MACRO[item.macroType] || '',
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: err.message,
+    });
+  }
+};
+
 module.exports = {
   addNutritionCheatSheetItem,
   getAllNutritionCheatSheetAdmin,
@@ -367,4 +415,5 @@ module.exports = {
   updateNutritionCheatSheetItem,
   deleteNutritionCheatSheetItem,
   getNutritionCheatSheetForUser,
+  getNutritionCheatSheetByIdForUser,
 };

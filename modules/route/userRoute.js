@@ -151,6 +151,7 @@ const {
 } = require('../controller/waterLogController');
 const {
   getNutritionCheatSheetForUser,
+  getNutritionCheatSheetByIdForUser,
 } = require('../controller/nutritionCheatSheetController');
 
 router.post('/signup', upload.none(), signup);
@@ -246,6 +247,7 @@ router.get('/get-nutrition-items/:id', upload.none(), verifyAccessToken, getNutr
 
 // Nutrition Cheat Sheet (macro quick reference — grouped by protein / carb / fat)
 router.get('/nutrition-cheat-sheet', upload.none(), verifyAccessToken, getNutritionCheatSheetForUser);
+router.get('/nutrition-cheat-sheet/:id', upload.none(), verifyAccessToken, getNutritionCheatSheetByIdForUser);
 
 // Workout Logging (user workouts)
 router.post('/workouts', upload.none(), verifyAccessToken, addOrUpdateWorkoutLog);
