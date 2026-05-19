@@ -71,17 +71,21 @@ const sendOneSignalNotification = async ({
     throw err;
   }
 
+  const subscriptionIds = (playerIds || []).map(String).filter(Boolean);
+
   const payload = {
     app_id: appId,
     headings: { en: title },
     contents: { en: message },
     data: data || {},
+    target_channel: 'push',
   };
 
   if (sendToAll) {
     payload.included_segments = ['Subscribed Users'];
   } else {
-    payload.include_player_ids = (playerIds || []).map(String);
+    // SDK 5+ uses subscription IDs (UUID), not legacy player_id
+    payload.include_subscription_ids = subscriptionIds;
   }
 
   return await postJson(ONESIGNAL_API_PATH, payload, {

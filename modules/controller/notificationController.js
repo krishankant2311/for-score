@@ -4,6 +4,54 @@ const Notification = require('../model/notificationModel');
 const NotificationRead = require('../model/notificationReadModel');
 const { sendOneSignalNotification } = require('../service/oneSignalService');
 
+const toBool = (value) => {
+  if (value === undefined || value === null || value === '') return false;
+  if (typeof value === 'boolean') return value;
+  const v = String(value).trim().toLowerCase();
+  if (['true', '1', 'yes'].includes(v)) return true;
+  if (['false', '0', 'no'].includes(v)) return false;
+  return Boolean(value);
+};
+
+const normalizePlayerIds = (playerIds) => {
+  if (playerIds === undefined || playerIds === null || playerIds === '') return [];
+  if (Array.isArray(playerIds)) {
+    return playerIds.map(String).map((s) => s.trim()).filter(Boolean);
+  }
+  const raw = String(playerIds).trim();
+  if (!raw) return [];
+  if (raw.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed.map(String).map((s) => s.trim()).filter(Boolean);
+      }
+    } catch (_) {
+      /* fall through */
+    }
+  }
+  if (raw.includes(',')) {
+    return raw.split(',').map((s) => s.trim()).filter(Boolean);
+  }
+  return [raw];
+};
+
+const resolveUserIdsByPlayerIds = async (playerIds) => {
+  if (!playerIds.length) return [];
+
+  const users = await User.find({
+    status: { $ne: 'Deleted' },
+    $or: [
+      { oneSignalPlayerId: { $in: playerIds } },
+      { oneSignalPlayerIds: { $in: playerIds } },
+    ],
+  })
+    .select('_id')
+    .lean();
+
+  return users.map((u) => u._id);
+};
+
 const getValidAdmin = async (token) => {
   const admin_id = token?._id;
   if (!admin_id) return null;
@@ -47,8 +95,8 @@ const sendNotificationByAdmin = async (req, res) => {
       });
     }
 
-    const toAll = !!sendToAll;
-    const ids = Array.isArray(playerIds) ? playerIds.map(String).filter(Boolean) : [];
+    const toAll = toBool(sendToAll);
+    const ids = normalizePlayerIds(playerIds);
 
     if (!toAll && !ids.length) {
       return res.status(400).json({
@@ -65,14 +113,17 @@ const sendNotificationByAdmin = async (req, res) => {
       sendToAll: toAll,
     });
 
+    const targetUserIds = toAll ? [] : await resolveUserIdsByPlayerIds(ids);
+
     const doc = await Notification.create({
       title: title.trim(),
       message: message.trim(),
       data: data && typeof data === 'object' ? data : {},
       target: toAll ? 'All' : 'Users',
-      userIds: toAll ? [] : ids,
+      userIds: targetUserIds,
       onesignal: {
         notificationId: onesignalResp?.id || '',
+        playerIds: toAll ? [] : ids,
         raw: onesignalResp || {},
       },
       status: 'Sent',

@@ -17,6 +17,7 @@ const notificationSchema = new mongoose.Schema(
     },
     onesignal: {
       notificationId: { type: String, default: '' },
+      playerIds: { type: [String], default: [] },
       raw: { type: mongoose.Schema.Types.Mixed, default: {} },
     },
     status: {
