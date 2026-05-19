@@ -14,6 +14,16 @@ const userSchema = new mongoose.Schema(
       trim: true,
       lowercase: true,
     },
+    googleId: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    authProvider: {
+      type: String,
+      enum: ['local', 'google'],
+      default: 'local',
+    },
     password: {
       type: String,
       required: true,
@@ -141,6 +151,8 @@ const userSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
+
+userSchema.index({ googleId: 1 }, { unique: true, sparse: true });
 
 const User = mongoose.model('User', userSchema);
 

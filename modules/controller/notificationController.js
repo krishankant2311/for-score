@@ -2,7 +2,10 @@ const { Admin } = require('../model/adminModel');
 const User = require('../model/userModel');
 const Notification = require('../model/notificationModel');
 const NotificationRead = require('../model/notificationReadModel');
-const { sendOneSignalNotification } = require('../service/oneSignalService');
+const {
+  sendOneSignalNotification,
+  getOneSignalDeliveryError,
+} = require('../service/oneSignalService');
 
 const toBool = (value) => {
   if (value === undefined || value === null || value === '') return false;
@@ -52,6 +55,41 @@ const resolveUserIdsByPlayerIds = async (playerIds) => {
   return users.map((u) => u._id);
 };
 
+const normalizeMongoUserIds = (userIds) => {
+  if (userIds === undefined || userIds === null || userIds === '') return [];
+  if (Array.isArray(userIds)) {
+    return userIds.map(String).map((s) => s.trim()).filter(Boolean);
+  }
+  const raw = String(userIds).trim();
+  if (!raw) return [];
+  if (raw.includes(',')) {
+    return raw.split(',').map((s) => s.trim()).filter(Boolean);
+  }
+  return [raw];
+};
+
+/** Resolve OneSignal ids from Mongo user _id list (admin can pass userIds instead of playerIds). */
+const resolvePlayerIdsFromMongoUserIds = async (mongoUserIds) => {
+  if (!mongoUserIds.length) return [];
+
+  const users = await User.find({
+    _id: { $in: mongoUserIds },
+    status: { $ne: 'Deleted' },
+  })
+    .select('oneSignalPlayerId oneSignalPlayerIds')
+    .lean();
+
+  const ids = new Set();
+  for (const u of users) {
+    if (u.oneSignalPlayerId) ids.add(String(u.oneSignalPlayerId).trim());
+    (u.oneSignalPlayerIds || []).forEach((id) => {
+      const v = String(id).trim();
+      if (v) ids.add(v);
+    });
+  }
+  return [...ids];
+};
+
 const getValidAdmin = async (token) => {
   const admin_id = token?._id;
   if (!admin_id) return null;
@@ -86,7 +124,8 @@ const sendNotificationByAdmin = async (req, res) => {
       });
     }
 
-    const { title, message, sendToAll, playerIds, data } = req.body;
+    const { title, message, sendToAll, playerIds, userIds: mongoUserIdsBody, data } =
+      req.body;
 
     if (!title?.trim() || !message?.trim()) {
       return res.status(400).json({
@@ -96,12 +135,17 @@ const sendNotificationByAdmin = async (req, res) => {
     }
 
     const toAll = toBool(sendToAll);
-    const ids = normalizePlayerIds(playerIds);
+    const idsFromPlayers = normalizePlayerIds(playerIds);
+    const idsFromUsers = await resolvePlayerIdsFromMongoUserIds(
+      normalizeMongoUserIds(mongoUserIdsBody)
+    );
+    const ids = [...new Set([...idsFromPlayers, ...idsFromUsers])];
 
     if (!toAll && !ids.length) {
       return res.status(400).json({
         success: false,
-        message: 'sendToAll=true or playerIds[] is required',
+        message:
+          'sendToAll=true or playerIds / userIds (Mongo user _id) with saved OneSignal id is required',
       });
     }
 
@@ -113,7 +157,15 @@ const sendNotificationByAdmin = async (req, res) => {
       sendToAll: toAll,
     });
 
-    const targetUserIds = toAll ? [] : await resolveUserIdsByPlayerIds(ids);
+    const deliveryError = getOneSignalDeliveryError(onesignalResp);
+    const targetUserIds = toAll
+      ? []
+      : [
+          ...new Set([
+            ...(await resolveUserIdsByPlayerIds(ids)),
+            ...normalizeMongoUserIds(mongoUserIdsBody),
+          ]),
+        ];
 
     const doc = await Notification.create({
       title: title.trim(),
@@ -124,11 +176,25 @@ const sendNotificationByAdmin = async (req, res) => {
       onesignal: {
         notificationId: onesignalResp?.id || '',
         playerIds: toAll ? [] : ids,
+        deliveryMethod: onesignalResp?._deliveryMethod || '',
         raw: onesignalResp || {},
       },
-      status: 'Sent',
+      status: deliveryError ? 'Failed' : 'Sent',
+      error: deliveryError || '',
       createdByAdminId: admin._id,
     });
+
+    if (deliveryError) {
+      return res.status(502).json({
+        success: false,
+        message: 'Push notification was not delivered by OneSignal',
+        error: deliveryError,
+        result: doc,
+        onesignal: onesignalResp,
+        hint:
+          'Check Render env ONESIGNAL_APP_ID matches mobile app. In OneSignal → Audience → Subscriptions, copy Subscription ID (not User ID). Re-save via POST /api/user/profile/player-id from the app.',
+      });
+    }
 
     return res.json({
       success: true,

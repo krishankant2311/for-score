@@ -6,6 +6,7 @@ const { generateAccessToken } = require('../../middleware/jwt');
 const sendEmail = require('../service/mailService');
 const { getResetPasswordTemplate } = require('../service/resetPasswordTemplate');
 const { getSignupOtpTemplate } = require('../service/signupOtpTemplate');
+const { verifyGoogleIdToken } = require('../service/googleAuthService');
 const { syncPrimaryWeightGoal } = require('./userGoalController');
 
 // Safe wrapper: dashboard goal sync must never break the profile-save flow.
@@ -508,6 +509,119 @@ const verifySignupOtp = async (req, res, next) => {
     return res.status(200).json({
       success: true,
       message: 'Email verified. Account activated.',
+      token,
+      data: attachProfilePhotoUrl(req, userObj),
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// POST /api/user/auth/google — body: idToken (Google Sign-In ID token)
+const googleAuth = async (req, res, next) => {
+  try {
+    const { idToken } = req.body;
+
+    if (!idToken || !String(idToken).trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'idToken is required',
+      });
+    }
+
+    if (!process.env.GOOGLE_CLIENT_ID && !process.env.GOOGLE_CLIENT_IDS) {
+      return res.status(500).json({
+        success: false,
+        message: 'Google auth is not configured on server (GOOGLE_CLIENT_ID)',
+      });
+    }
+
+    let googleUser;
+    try {
+      googleUser = await verifyGoogleIdToken(String(idToken).trim());
+    } catch (err) {
+      return res.status(401).json({
+        success: false,
+        message: err.message || 'Invalid Google token',
+        code: err.code,
+      });
+    }
+
+    const { googleId, email, name: googleName, picture } = googleUser;
+    const profileUpdate = buildSignupProfileUpdate(req.body);
+
+    let user = await User.findOne({
+      $or: [{ googleId }, { email }],
+    });
+
+    if (user?.status === 'Deleted') {
+      return res.status(400).json({
+        success: false,
+        message: 'This account has been deleted',
+      });
+    }
+
+    if (user?.status === 'Blocked') {
+      return res.status(403).json({
+        success: false,
+        message: 'Your account is blocked. Please contact support.',
+      });
+    }
+
+    if (!user) {
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), salt);
+      const displayName = req.body.name?.trim() || googleName || email.split('@')[0];
+
+      user = await User.create({
+        name: displayName,
+        email,
+        password: hashedPassword,
+        googleId,
+        authProvider: 'google',
+        profilePhoto: picture || '',
+        status: 'Active',
+        ...profileUpdate,
+      });
+      await safeSyncWeightGoal(user);
+    } else {
+      if (user.googleId && user.googleId !== googleId) {
+        return res.status(400).json({
+          success: false,
+          message: 'This email is linked to a different Google account',
+        });
+      }
+
+      if (!user.googleId) {
+        user.googleId = googleId;
+        user.authProvider = 'google';
+      }
+
+      if (user.status === 'Pending') {
+        user.status = 'Active';
+        user.otp = { otpValue: '', otpExpiry: null, otpSentAt: null };
+      }
+
+      if (!user.name?.trim()) {
+        user.name = req.body.name?.trim() || googleName || user.name;
+      }
+      if (!user.profilePhoto?.trim() && picture) {
+        user.profilePhoto = picture;
+      }
+
+      Object.assign(user, profileUpdate);
+      await user.save();
+      await safeSyncWeightGoal(user);
+    }
+
+    const payload = { _id: user._id, email: user.email };
+    const token = generateAccessToken(payload);
+    const userObj = user.toObject();
+    delete userObj.password;
+
+    return res.status(200).json({
+      success: true,
+      message: 'Google sign-in successful',
       token,
       data: attachProfilePhotoUrl(req, userObj),
     });
@@ -2019,6 +2133,7 @@ module.exports = {
   signup,
   verifySignupOtp,
   resendSignupOtp,
+  googleAuth,
   login,
   forgotPassword,
   resetPassword,
