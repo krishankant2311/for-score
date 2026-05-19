@@ -68,6 +68,21 @@ const normalizeMongoUserIds = (userIds) => {
   return [raw];
 };
 
+const isMongoObjectId = (id) => /^[a-fA-F0-9]{24}$/.test(String(id).trim());
+
+/** Admin panel sends Mongo _id in playerIds — split from real OneSignal UUIDs. */
+const splitRecipientIds = (ids) => {
+  const mongoUserIds = [];
+  const oneSignalIds = [];
+  for (const id of ids) {
+    const s = String(id).trim();
+    if (!s) continue;
+    if (isMongoObjectId(s)) mongoUserIds.push(s);
+    else oneSignalIds.push(s);
+  }
+  return { mongoUserIds, oneSignalIds };
+};
+
 /** Resolve OneSignal ids from Mongo user _id list (admin can pass userIds instead of playerIds). */
 const resolvePlayerIdsFromMongoUserIds = async (mongoUserIds) => {
   if (!mongoUserIds.length) return [];
@@ -135,17 +150,32 @@ const sendNotificationByAdmin = async (req, res) => {
     }
 
     const toAll = toBool(sendToAll);
-    const idsFromPlayers = normalizePlayerIds(playerIds);
-    const idsFromUsers = await resolvePlayerIdsFromMongoUserIds(
-      normalizeMongoUserIds(mongoUserIdsBody)
-    );
-    const ids = [...new Set([...idsFromPlayers, ...idsFromUsers])];
+    const rawPlayerIds = normalizePlayerIds(playerIds);
+    const { mongoUserIds: mongoFromPlayerField, oneSignalIds: directOneSignalIds } =
+      splitRecipientIds(rawPlayerIds);
+    const allMongoUserIds = [
+      ...new Set([
+        ...normalizeMongoUserIds(mongoUserIdsBody),
+        ...mongoFromPlayerField,
+      ]),
+    ];
+    const idsFromUsers = await resolvePlayerIdsFromMongoUserIds(allMongoUserIds);
+    const ids = [...new Set([...directOneSignalIds, ...idsFromUsers])];
+
+    if (!toAll && allMongoUserIds.length && !idsFromUsers.length) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'Selected user(s) have no OneSignal subscription id. Ask them to open the app and allow notifications.',
+        userIds: allMongoUserIds,
+      });
+    }
 
     if (!toAll && !ids.length) {
       return res.status(400).json({
         success: false,
         message:
-          'sendToAll=true or playerIds / userIds (Mongo user _id) with saved OneSignal id is required',
+          'sendToAll=true or playerIds (OneSignal UUID) / userIds (Mongo _id) with saved subscription is required',
       });
     }
 
@@ -163,7 +193,7 @@ const sendNotificationByAdmin = async (req, res) => {
       : [
           ...new Set([
             ...(await resolveUserIdsByPlayerIds(ids)),
-            ...normalizeMongoUserIds(mongoUserIdsBody),
+            ...allMongoUserIds,
           ]),
         ];
 
