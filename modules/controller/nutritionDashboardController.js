@@ -9,6 +9,32 @@ const normalizeDate = (dateStr) => {
   return d;
 };
 
+const toBool = (value, defaultValue = true) => {
+  if (value === undefined || value === null) return defaultValue;
+  if (typeof value === 'boolean') return value;
+  const s = String(value).toLowerCase().trim();
+  if (['true', '1', 'yes'].includes(s)) return true;
+  if (['false', '0', 'no'].includes(s)) return false;
+  return defaultValue;
+};
+
+/** Stored flag wins; legacy rows (no field) = complete if they have logged items */
+const mealLogIsComplete = (log) => {
+  if (typeof log.isCompleted === 'boolean') return log.isCompleted;
+  return Array.isArray(log.items) && log.items.length > 0;
+};
+
+const enrichMealLogForResponse = (log) => {
+  const sortedItems = [...(log.items || [])].sort((a, b) =>
+    String(a.mealTime || '').localeCompare(String(b.mealTime || ''))
+  );
+  return {
+    ...log,
+    items: sortedItems,
+    isCompleted: mealLogIsComplete(log),
+  };
+};
+
 // 1. Add or update meal log for a meal type on a given date
 const addOrUpdateMealLog = async (req, res) => {
   try {
@@ -105,10 +131,14 @@ const addOrUpdateMealLog = async (req, res) => {
         mealType,
         items: cleanedItems,
         notes: (notes || '').trim(),
+        isCompleted: true,
+        completedAt: new Date(),
       });
     } else {
       log.items = cleanedItems;
       if (notes != null) log.notes = (notes || '').trim();
+      log.isCompleted = true;
+      log.completedAt = new Date();
       await log.save();
     }
 
@@ -191,10 +221,14 @@ const scheduleMealByFoodId = async (req, res) => {
         mealType,
         items: [item],
         notes: (notes || '').trim(),
+        isCompleted: true,
+        completedAt: new Date(),
       });
     } else {
       log.items.push(item);
       if (notes != null) log.notes = (notes || '').trim();
+      log.isCompleted = true;
+      log.completedAt = new Date();
       await log.save();
     }
 
@@ -232,6 +266,63 @@ const aggregateDailyMacros = (logs) => {
   return { calories, protein, carbs, fats };
 };
 
+const SCHEDULED_MEAL_TYPES = [
+  'Breakfast',
+  'Morning Snack',
+  'Lunch',
+  'Evening Snack',
+  'Dinner',
+];
+
+const safePercent = (val, target) =>
+  target > 0 ? Math.min(100, Math.round((val / target) * 100)) : 0;
+
+const roundMacro = (n) => Math.round(Number(n) || 0);
+
+/** Daily totals for Great American Menu / nutrition summary (used, target, remaining). */
+const buildDailyNutritionPayload = (user, logs, normalizedDate) => {
+  const macros = aggregateDailyMacros(logs);
+
+  const calorieTarget = 2200 + (user.calorieAdjustment || 0);
+  const proteinTarget = 150;
+  const carbsTarget = 250;
+  const fatsTarget = 70;
+
+  const currentCalories = roundMacro(macros.calories);
+  const targetCalories = roundMacro(calorieTarget);
+  const remainingCalories = Math.max(0, targetCalories - currentCalories);
+
+  const mealsCompleted = SCHEDULED_MEAL_TYPES.filter((type) =>
+    logs.some((log) => log.mealType === type && mealLogIsComplete(log))
+  ).length;
+
+  const macroBlock = (current, target) => ({
+    current: roundMacro(current),
+    target: roundMacro(target),
+    remaining: Math.max(0, roundMacro(target) - roundMacro(current)),
+    percent: safePercent(current, target),
+  });
+
+  return {
+    date: normalizedDate,
+    calories: {
+      current: currentCalories,
+      target: targetCalories,
+      remaining: remainingCalories,
+      percent: safePercent(currentCalories, targetCalories),
+    },
+    macros: {
+      protein: macroBlock(macros.protein, proteinTarget),
+      carbs: macroBlock(macros.carbs, carbsTarget),
+      fats: macroBlock(macros.fats, fatsTarget),
+    },
+    meals: {
+      completed: mealsCompleted,
+      total: SCHEDULED_MEAL_TYPES.length,
+    },
+  };
+};
+
 // 2. Get daily nutrition dashboard summary
 const getDailyNutritionSummary = async (req, res) => {
   try {
@@ -254,44 +345,10 @@ const getDailyNutritionSummary = async (req, res) => {
       status: { $ne: 'Deleted' },
     }).lean();
 
-    const macros = aggregateDailyMacros(logs);
-
-    // Simple targets (could be personalized later)
-    const calorieTarget = 2200 + (user.calorieAdjustment || 0);
-    const proteinTarget = 150;
-    const carbsTarget = 250;
-    const fatsTarget = 70;
-
-    const safePercent = (val, target) => (target > 0 ? Math.min(100, (val / target) * 100) : 0);
-
     return res.json({
       success: true,
       message: 'Daily nutrition summary fetched successfully',
-      result: {
-        date: normalizedDate,
-        calories: {
-          current: macros.calories,
-          target: calorieTarget,
-          percent: safePercent(macros.calories, calorieTarget),
-        },
-        macros: {
-          protein: {
-            current: macros.protein,
-            target: proteinTarget,
-            percent: safePercent(macros.protein, proteinTarget),
-          },
-          carbs: {
-            current: macros.carbs,
-            target: carbsTarget,
-            percent: safePercent(macros.carbs, carbsTarget),
-          },
-          fats: {
-            current: macros.fats,
-            target: fatsTarget,
-            percent: safePercent(macros.fats, fatsTarget),
-          },
-        },
-      },
+      result: buildDailyNutritionPayload(user, logs, normalizedDate),
     });
   } catch (err) {
     console.error(err);
@@ -327,17 +384,15 @@ const getDailyMeals = async (req, res) => {
       .sort({ mealType: 1, createdAt: 1 })
       .lean();
 
-    const sortedLogs = logs.map((log) => ({
-      ...log,
-      items: [...(log.items || [])].sort((a, b) =>
-        String(a.mealTime || '').localeCompare(String(b.mealTime || ''))
-      ),
-    }));
+    const sortedLogs = logs.map((log) => enrichMealLogForResponse(log));
+
+    const summary = buildDailyNutritionPayload(user, sortedLogs, normalizedDate);
 
     return res.json({
       success: true,
       message: 'Daily meals fetched successfully',
       result: sortedLogs,
+      summary,
     });
   } catch (err) {
     console.error(err);
@@ -463,6 +518,115 @@ const deleteMealLog = async (req, res) => {
   }
 };
 
+// 6. Mark one meal log complete / incomplete (by MealLog _id)
+const markMealLogComplete = async (req, res) => {
+  try {
+    const user_id = req.token?._id;
+    const user = await User.findById(user_id);
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    const { id } = req.params;
+    const completed = toBool(req.body?.completed ?? req.body?.isCompleted, true);
+
+    const log = await MealLog.findOne({
+      _id: id,
+      userId: user_id,
+      status: { $ne: 'Deleted' },
+    });
+
+    if (!log) {
+      return res.status(404).json({
+        success: false,
+        message: 'Meal log not found',
+      });
+    }
+
+    log.isCompleted = completed;
+    log.completedAt = completed ? new Date() : null;
+    await log.save();
+
+    return res.json({
+      success: true,
+      message: completed ? 'Meal marked complete' : 'Meal marked incomplete',
+      result: enrichMealLogForResponse(log.toObject()),
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: err.message,
+    });
+  }
+};
+
+// 7. Mark all scheduled meal slots for a day complete / incomplete (creates empty logs if needed)
+const markAllMealsCompleteForDay = async (req, res) => {
+  try {
+    const user_id = req.token?._id;
+    const user = await User.findById(user_id);
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    const normalizedDate = normalizeDate(req.body?.date);
+    const completed = toBool(req.body?.completed ?? req.body?.isCompleted, true);
+
+    const updated = [];
+
+    for (const mealType of SCHEDULED_MEAL_TYPES) {
+      let log = await MealLog.findOne({
+        userId: user_id,
+        date: normalizedDate,
+        mealType,
+        status: { $ne: 'Deleted' },
+      });
+
+      if (!log) {
+        if (!completed) continue;
+        log = await MealLog.create({
+          userId: user_id,
+          date: normalizedDate,
+          mealType,
+          items: [],
+          notes: '',
+          isCompleted: true,
+          completedAt: new Date(),
+        });
+      } else {
+        log.isCompleted = completed;
+        log.completedAt = completed ? new Date() : null;
+        await log.save();
+      }
+      const plain = log.toObject ? log.toObject() : log;
+      updated.push(enrichMealLogForResponse(plain));
+    }
+
+    return res.json({
+      success: true,
+      message: completed
+        ? 'All scheduled meals marked complete for this day'
+        : 'All scheduled meals marked incomplete for this day',
+      result: updated,
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: err.message,
+    });
+  }
+};
+
 module.exports = {
   addOrUpdateMealLog,
   scheduleMealByFoodId,
@@ -470,5 +634,7 @@ module.exports = {
   getDailyMeals,
   getSuggestedMenu,
   deleteMealLog,
+  markMealLogComplete,
+  markAllMealsCompleteForDay,
 };
 

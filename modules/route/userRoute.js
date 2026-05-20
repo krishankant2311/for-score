@@ -92,6 +92,8 @@ const {
   getDailyMeals,
   getSuggestedMenu,
   deleteMealLog,
+  markMealLogComplete,
+  markAllMealsCompleteForDay,
 } = require('../controller/nutritionDashboardController');
 const {
   getAllFoods,
@@ -285,6 +287,13 @@ router.post('/progress-photos/:id/delete', upload.none(), verifyAccessToken, del
 // Nutrition Dashboard (Today’s Nutrition)
 router.post('/meals', upload.none(), verifyAccessToken, addOrUpdateMealLog);
 router.post('/meals/schedule', upload.none(), verifyAccessToken, scheduleMealByFoodId);
+router.post('/meals/:id/complete', upload.none(), verifyAccessToken, markMealLogComplete);
+router.post(
+  '/nutrition/meals/mark-all-complete',
+  upload.none(),
+  verifyAccessToken,
+  markAllMealsCompleteForDay
+);
 router.get('/nutrition/summary', upload.none(), verifyAccessToken, getDailyNutritionSummary);
 router.get('/nutrition/meals', upload.none(), verifyAccessToken, getDailyMeals);
 router.get('/nutrition/suggested-menu', upload.none(), verifyAccessToken, getSuggestedMenu);

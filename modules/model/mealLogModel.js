@@ -76,6 +76,14 @@ const mealLogSchema = new mongoose.Schema(
       default: '',
       trim: true,
     },
+    isCompleted: {
+      type: Boolean,
+      default: false,
+    },
+    completedAt: {
+      type: Date,
+      default: null,
+    },
     status: {
       type: String,
       enum: ['Active', 'Deleted'],
