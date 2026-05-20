@@ -4,6 +4,7 @@ const DailyExerciseCompletion = require('../model/dailyExerciseCompletionModel')
 const {
   resolveTodaysExerciseSlots,
   normalizeCalendarDate,
+  buildTodayWorkoutListItem,
 } = require('./todayWorkoutController');
 
 const getDailyExerciseCompletions = async (req, res) => {
@@ -261,9 +262,173 @@ const markAllWorkoutSlotsCompleteForDay = async (req, res) => {
   }
 };
 
+/**
+ * GET query:
+ *   - date=YYYY-MM-DD → that day's completed exercises (names, thumbnails via active program + schedule for that date)
+ *   - from= & to= → each day in range with completed_slot_keys + counts (no per-exercise expand)
+ */
+const getCompletedExercisesByDateOrRange = async (req, res) => {
+  try {
+    const user_id = req.token?._id;
+    if (!(await User.findById(user_id))) {
+      return res.status(400).json({ success: false, message: 'User not found' });
+    }
+
+    const { date, from, to } = req.query || {};
+    const hasRange =
+      from != null &&
+      String(from).trim() !== '' &&
+      to != null &&
+      String(to).trim() !== '';
+
+    if (hasRange) {
+      const dFrom = new Date(from);
+      const dTo = new Date(to);
+      if (Number.isNaN(dFrom.getTime()) || Number.isNaN(dTo.getTime())) {
+        return res.status(400).json({ success: false, message: 'Invalid from or to date' });
+      }
+      let nf = normalizeCalendarDate(dFrom);
+      let nt = normalizeCalendarDate(dTo);
+      if (nf.getTime() > nt.getTime()) {
+        const swap = nf;
+        nf = nt;
+        nt = swap;
+      }
+
+      const rows = await DailyExerciseCompletion.find({
+        userId: user_id,
+        date: { $gte: nf, $lte: nt },
+      })
+        .sort({ date: 1 })
+        .lean();
+
+      const days = rows.map((r) => ({
+        date: r.date,
+        completed_count: (r.completedSlotKeys || []).length,
+        completed_slot_keys: r.completedSlotKeys || [],
+      }));
+
+      return res.json({
+        success: true,
+        message: 'Completed exercise keys by date range',
+        result: {
+          from: nf,
+          to: nt,
+          day_count: days.length,
+          days,
+        },
+      });
+    }
+
+    if (!date || !String(date).trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Provide date=YYYY-MM-DD or from= and to= (range)',
+      });
+    }
+
+    const refDate = new Date(date);
+    if (Number.isNaN(refDate.getTime())) {
+      return res.status(400).json({ success: false, message: 'Invalid date' });
+    }
+    const normalizedDate = normalizeCalendarDate(refDate);
+
+    const doc = await DailyExerciseCompletion.findOne({
+      userId: user_id,
+      date: normalizedDate,
+    }).lean();
+
+    const completedKeys = [...(doc?.completedSlotKeys || [])]
+      .map((k) => String(k).trim())
+      .filter(Boolean);
+    const uniqueKeys = [...new Set(completedKeys)];
+
+    const user = await User.findById(user_id).select('activeProgramId programStartedAt').lean();
+    const exercises = [];
+    let day_type = null;
+    let total_slots_for_day = 0;
+
+    if (user?.activeProgramId && user?.programStartedAt) {
+      const program = await Program.findOne({
+        _id: user.activeProgramId,
+        status: 'Active',
+        isDeleted: { $ne: true },
+      }).lean();
+
+      if (program) {
+        const programIdStr = String(program._id);
+        const { slots, dayType } = resolveTodaysExerciseSlots(
+          program,
+          user.programStartedAt,
+          refDate,
+          programIdStr
+        );
+        day_type = dayType;
+        total_slots_for_day = slots.length;
+        const slotByKey = new Map(slots.map((s) => [s.slotKey, s]));
+        const doneSet = new Set(uniqueKeys);
+
+        for (const slot of slots) {
+          if (doneSet.has(slot.slotKey)) {
+            exercises.push(buildTodayWorkoutListItem(req, slot, true));
+          }
+        }
+
+        for (const key of uniqueKeys) {
+          if (!slotByKey.has(key)) {
+            exercises.push({
+              slotKey: key,
+              name: '',
+              completed: true,
+              orphaned: true,
+              note: 'Key not in this date workout list (program or week grid may have changed since)',
+            });
+          }
+        }
+      }
+    }
+
+    if (!exercises.length && uniqueKeys.length) {
+      uniqueKeys.forEach((slotKey) => {
+        exercises.push({
+          slotKey,
+          name: '',
+          completed: true,
+          orphaned: true,
+          note:
+            user?.activeProgramId && user?.programStartedAt
+              ? 'Could not resolve exercise details'
+              : 'No active program — slot keys only',
+        });
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: 'Completed exercises for this day',
+      result: {
+        date: normalizedDate,
+        day_type,
+        completed_slot_keys: uniqueKeys,
+        completed_count: uniqueKeys.length,
+        total_slots_for_day,
+        exercises,
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: err.message,
+    });
+  }
+};
+
 module.exports = {
   getDailyExerciseCompletions,
   putDailyExerciseCompletions,
   postTodayExerciseSlotCompletion,
   markAllWorkoutSlotsCompleteForDay,
+  getCompletedExercisesByDateOrRange,
 };
