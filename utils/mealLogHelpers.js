@@ -18,6 +18,28 @@ const mealLogIsComplete = (log) => {
   return Array.isArray(log.items) && log.items.length > 0;
 };
 
+/** Normalize any stored date to ISO string; invalid / missing → null */
+const toIsoOrNull = (d) => {
+  if (d == null || d === '') return null;
+  const dt = d instanceof Date ? d : new Date(d);
+  const t = dt.getTime();
+  return Number.isNaN(t) ? null : dt.toISOString();
+};
+
+/**
+ * When a meal counts as complete but `completedAt` was never set (legacy rows or
+ * older writes), expose `updatedAt` / `createdAt` so clients can always show a time.
+ */
+const resolvedCompletedAtForResponse = (log) => {
+  if (!log) return null;
+  const explicit = toIsoOrNull(log.completedAt);
+  if (explicit) return explicit;
+  if (mealLogIsComplete(log)) {
+    return toIsoOrNull(log.updatedAt) || toIsoOrNull(log.createdAt) || null;
+  }
+  return null;
+};
+
 const enrichMealLogForResponse = (log) => {
   if (!log) return log;
   const sortedItems = [...(log.items || [])].sort((a, b) =>
@@ -27,7 +49,7 @@ const enrichMealLogForResponse = (log) => {
     ...log,
     items: sortedItems,
     isCompleted: mealLogIsComplete(log),
-    completedAt: log.completedAt != null ? log.completedAt : null,
+    completedAt: resolvedCompletedAtForResponse(log),
   };
 };
 
@@ -57,7 +79,7 @@ const buildScheduledMealSlots = (logs) => {
       isCompleted,
       mealLogId: log && log._id ? String(log._id) : null,
       hasItems: !!(log && Array.isArray(log.items) && log.items.length > 0),
-      completedAt: log && log.completedAt ? log.completedAt : null,
+      completedAt: log ? resolvedCompletedAtForResponse(log) : null,
     };
   });
 };
@@ -68,6 +90,8 @@ const countCompletedScheduledSlots = (logs) =>
 module.exports = {
   SCHEDULED_MEAL_TYPES,
   mealLogIsComplete,
+  toIsoOrNull,
+  resolvedCompletedAtForResponse,
   enrichMealLogForResponse,
   buildScheduledMealSlots,
   countCompletedScheduledSlots,

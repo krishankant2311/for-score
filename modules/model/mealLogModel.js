@@ -95,6 +95,17 @@ const mealLogSchema = new mongoose.Schema(
 
 mealLogSchema.index({ userId: 1, date: 1, mealType: 1 });
 
+/** Ensure completed meals always have a timestamp (fixes gaps from older clients/paths). */
+mealLogSchema.pre('save', function ensureCompletedAt(next) {
+  if (this.isCompleted === true && (this.completedAt == null || this.completedAt === '')) {
+    this.completedAt = new Date();
+  }
+  if (this.isCompleted === false) {
+    this.completedAt = null;
+  }
+  next();
+});
+
 const MealLog = mongoose.model('MealLog', mealLogSchema);
 
 module.exports = MealLog;
