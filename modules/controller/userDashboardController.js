@@ -24,6 +24,12 @@ const {
 } = require('./todayWorkoutController');
 const { buildGoalView } = require('./userGoalController');
 const { buildWaterView } = require('./waterLogController');
+const {
+  SCHEDULED_MEAL_TYPES,
+  enrichMealLogForResponse,
+  buildScheduledMealSlots,
+  countCompletedScheduledSlots,
+} = require('../../utils/mealLogHelpers');
 
 // ---- Helpers --------------------------------------------------------------
 
@@ -210,12 +216,12 @@ const buildTodayDietCard = async (user, refDate) => {
     }).lean(),
   ]);
 
-  // "Meals logged today" counts distinct mealType buckets that have items.
-  const loggedMealTypes = new Set(
-    logs.filter((l) => (l.items || []).length).map((l) => l.mealType)
-  );
-  const mealsLogged = loggedMealTypes.size;
-  const mealsTarget = 4; // Breakfast / Lunch / Dinner / Snack (UI shows X / 4)
+  /** Matches nutrition APIs: completed slots (explicit flag or legacy items) */
+  const mealsLogged = countCompletedScheduledSlots(logs);
+  const mealsTarget = SCHEDULED_MEAL_TYPES.length;
+
+  const mealLogs = logs.map((l) => enrichMealLogForResponse(l));
+  const mealSlots = buildScheduledMealSlots(logs);
 
   const macros = sumMealMacros(logs);
 
@@ -233,6 +239,8 @@ const buildTodayDietCard = async (user, refDate) => {
       target: mealsTarget,
       label: `${mealsLogged} / ${mealsTarget}`,
     },
+    mealLogs,
+    mealSlots,
     calories: {
       current: macros.calories,
       target: calorieTarget,

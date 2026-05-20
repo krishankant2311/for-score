@@ -45,6 +45,7 @@ const {
   getDailyExerciseCompletions,
   putDailyExerciseCompletions,
   postTodayExerciseSlotCompletion,
+  markAllWorkoutSlotsCompleteForDay,
 } = require('../controller/dailyExerciseCompletionController');
 const {
   addMeasurement,
@@ -260,6 +261,12 @@ router.get('/workouts/summary', upload.none(), verifyAccessToken, getWorkoutSumm
 router.get('/workouts/history', upload.none(), verifyAccessToken, getWorkoutHistoryByExercise);
 router.get('/workouts/today/completions', upload.none(), verifyAccessToken, getDailyExerciseCompletions);
 router.post('/workouts/today/completions', upload.none(), verifyAccessToken, putDailyExerciseCompletions);
+router.post(
+  '/workouts/today/completions/mark-all-complete',
+  upload.none(),
+  verifyAccessToken,
+  markAllWorkoutSlotsCompleteForDay
+);
 router.post(
   '/workouts/today/exercise/performance',
   upload.none(),

@@ -1,11 +1,10 @@
 const User = require('../model/userModel');
+const Program = require('../model/programModel');
 const DailyExerciseCompletion = require('../model/dailyExerciseCompletionModel');
-
-const normalizeCalendarDate = (dateInput) => {
-  const d = dateInput ? new Date(dateInput) : new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
-};
+const {
+  resolveTodaysExerciseSlots,
+  normalizeCalendarDate,
+} = require('./todayWorkoutController');
 
 const getDailyExerciseCompletions = async (req, res) => {
   try {
@@ -149,8 +148,122 @@ const postTodayExerciseSlotCompletion = async (req, res) => {
   }
 };
 
+/**
+ * Mark every exercise slot for the given calendar day as complete (same slotKeys as GET /workouts/today).
+ * Body/query: optional date. Body: completed: false clears all slot keys for that day.
+ */
+const markAllWorkoutSlotsCompleteForDay = async (req, res) => {
+  try {
+    const user_id = req.token?._id;
+    const user = await User.findById(user_id).select('activeProgramId programStartedAt').lean();
+    if (!user) {
+      return res.status(400).json({ success: false, message: 'User not found' });
+    }
+
+    const dateInput = req.body?.date ?? req.query?.date;
+    const refDate = dateInput ? new Date(dateInput) : new Date();
+    if (Number.isNaN(refDate.getTime())) {
+      return res.status(400).json({ success: false, message: 'Invalid date' });
+    }
+    const normalizedDate = normalizeCalendarDate(refDate);
+
+    const clearAll =
+      req.body?.completed === false ||
+      req.body?.completed === 'false' ||
+      req.body?.isCompleted === false;
+
+    if (clearAll) {
+      const doc = await DailyExerciseCompletion.findOneAndUpdate(
+        { userId: user_id, date: normalizedDate },
+        { $set: { completedSlotKeys: [] } },
+        { new: true, upsert: true }
+      ).lean();
+      return res.json({
+        success: true,
+        message: 'Exercise completions cleared for this day',
+        result: {
+          date: normalizedDate,
+          completedSlotKeys: doc?.completedSlotKeys || [],
+          marked_count: 0,
+        },
+      });
+    }
+
+    if (!user.activeProgramId || !user.programStartedAt) {
+      return res.status(400).json({
+        success: false,
+        message: 'No active program. Select a program first.',
+      });
+    }
+
+    const program = await Program.findOne({
+      _id: user.activeProgramId,
+      status: 'Active',
+      isDeleted: { $ne: true },
+    }).lean();
+    if (!program) {
+      return res.status(404).json({ success: false, message: 'Active program no longer exists' });
+    }
+
+    const programIdStr = String(program._id);
+    const { slots, dayType } = resolveTodaysExerciseSlots(
+      program,
+      user.programStartedAt,
+      refDate,
+      programIdStr
+    );
+
+    const keys = [...new Set(slots.map((s) => s.slotKey).filter(Boolean))];
+
+    if (keys.length === 0) {
+      const existing = await DailyExerciseCompletion.findOne({
+        userId: user_id,
+        date: normalizedDate,
+      }).lean();
+      return res.json({
+        success: true,
+        message: `No workout exercise slots for this day (${dayType}). Nothing to mark.`,
+        result: {
+          date: normalizedDate,
+          day_type: dayType,
+          completedSlotKeys: existing?.completedSlotKeys || [],
+          marked_count: 0,
+        },
+      });
+    }
+
+    const doc = await DailyExerciseCompletion.findOneAndUpdate(
+      { userId: user_id, date: normalizedDate },
+      {
+        $set: { completedSlotKeys: keys },
+        $setOnInsert: { userId: user_id, date: normalizedDate },
+      },
+      { new: true, upsert: true }
+    ).lean();
+
+    return res.json({
+      success: true,
+      message: 'All exercises for this day marked complete',
+      result: {
+        date: normalizedDate,
+        day_type: dayType,
+        completedSlotKeys: doc?.completedSlotKeys || [],
+        marked_count: keys.length,
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: err.message,
+    });
+  }
+};
+
 module.exports = {
   getDailyExerciseCompletions,
   putDailyExerciseCompletions,
   postTodayExerciseSlotCompletion,
+  markAllWorkoutSlotsCompleteForDay,
 };

@@ -2,6 +2,12 @@ const User = require('../model/userModel');
 const NutritionItem = require('../model/nutritionItemModel');
 const MealLog = require('../model/mealLogModel');
 const Food = require('../model/foodModel');
+const {
+  SCHEDULED_MEAL_TYPES,
+  enrichMealLogForResponse,
+  buildScheduledMealSlots,
+  countCompletedScheduledSlots,
+} = require('../../utils/mealLogHelpers');
 
 const normalizeDate = (dateStr) => {
   const d = dateStr ? new Date(dateStr) : new Date();
@@ -16,23 +22,6 @@ const toBool = (value, defaultValue = true) => {
   if (['true', '1', 'yes'].includes(s)) return true;
   if (['false', '0', 'no'].includes(s)) return false;
   return defaultValue;
-};
-
-/** Stored flag wins; legacy rows (no field) = complete if they have logged items */
-const mealLogIsComplete = (log) => {
-  if (typeof log.isCompleted === 'boolean') return log.isCompleted;
-  return Array.isArray(log.items) && log.items.length > 0;
-};
-
-const enrichMealLogForResponse = (log) => {
-  const sortedItems = [...(log.items || [])].sort((a, b) =>
-    String(a.mealTime || '').localeCompare(String(b.mealTime || ''))
-  );
-  return {
-    ...log,
-    items: sortedItems,
-    isCompleted: mealLogIsComplete(log),
-  };
 };
 
 // 1. Add or update meal log for a meal type on a given date
@@ -145,7 +134,7 @@ const addOrUpdateMealLog = async (req, res) => {
     return res.json({
       success: true,
       message: 'Meal log saved successfully',
-      result: log,
+      result: enrichMealLogForResponse(log.toObject ? log.toObject() : log),
     });
   } catch (err) {
     console.error(err);
@@ -235,7 +224,7 @@ const scheduleMealByFoodId = async (req, res) => {
     return res.json({
       success: true,
       message: 'Meal scheduled successfully',
-      result: log,
+      result: enrichMealLogForResponse(log.toObject ? log.toObject() : log),
     });
   } catch (err) {
     console.error(err);
@@ -266,14 +255,6 @@ const aggregateDailyMacros = (logs) => {
   return { calories, protein, carbs, fats };
 };
 
-const SCHEDULED_MEAL_TYPES = [
-  'Breakfast',
-  'Morning Snack',
-  'Lunch',
-  'Evening Snack',
-  'Dinner',
-];
-
 const safePercent = (val, target) =>
   target > 0 ? Math.min(100, Math.round((val / target) * 100)) : 0;
 
@@ -292,9 +273,8 @@ const buildDailyNutritionPayload = (user, logs, normalizedDate) => {
   const targetCalories = roundMacro(calorieTarget);
   const remainingCalories = Math.max(0, targetCalories - currentCalories);
 
-  const mealsCompleted = SCHEDULED_MEAL_TYPES.filter((type) =>
-    logs.some((log) => log.mealType === type && mealLogIsComplete(log))
-  ).length;
+  const mealsCompleted = countCompletedScheduledSlots(logs);
+  const mealSlots = buildScheduledMealSlots(logs);
 
   const macroBlock = (current, target) => ({
     current: roundMacro(current),
@@ -320,6 +300,7 @@ const buildDailyNutritionPayload = (user, logs, normalizedDate) => {
       completed: mealsCompleted,
       total: SCHEDULED_MEAL_TYPES.length,
     },
+    mealSlots,
   };
 };
 
@@ -506,7 +487,7 @@ const deleteMealLog = async (req, res) => {
     return res.json({
       success: true,
       message: 'Meal log deleted successfully',
-      result: log,
+      result: enrichMealLogForResponse(log.toObject ? log.toObject() : log),
     });
   } catch (err) {
     console.error(err);
