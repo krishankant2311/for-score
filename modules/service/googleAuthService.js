@@ -1,3 +1,8 @@
+/**
+ * Google ID token verification (used by `/api/user/auth/google`).
+ * Backend route + userController handler are COMMENTED OUT for now —
+ * uncomment those and `require(...googleAuthService)` together when re-enabling.
+ */
 const https = require('https');
 
 const toBool = (value, defaultValue = true) => {

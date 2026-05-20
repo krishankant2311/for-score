@@ -6,7 +6,8 @@ const { generateAccessToken } = require('../../middleware/jwt');
 const sendEmail = require('../service/mailService');
 const { getResetPasswordTemplate } = require('../service/resetPasswordTemplate');
 const { getSignupOtpTemplate } = require('../service/signupOtpTemplate');
-const { verifyGoogleIdToken } = require('../service/googleAuthService');
+// Google login disabled — uncomment when re-enabling /auth/google
+// const { verifyGoogleIdToken } = require('../service/googleAuthService');
 const { syncPrimaryWeightGoal } = require('./userGoalController');
 
 // Safe wrapper: dashboard goal sync must never break the profile-save flow.
@@ -517,7 +518,9 @@ const verifySignupOtp = async (req, res, next) => {
   }
 };
 
+// ---------- Google sign-in (disabled temporarily) ----------
 // POST /api/user/auth/google — body: idToken (Google Sign-In ID token)
+/*
 const googleAuth = async (req, res, next) => {
   try {
     const { idToken } = req.body;
@@ -629,6 +632,7 @@ const googleAuth = async (req, res, next) => {
     next(err);
   }
 };
+*/
 
 const login = async (req, res, next) => {
   try {
@@ -2133,7 +2137,7 @@ module.exports = {
   signup,
   verifySignupOtp,
   resendSignupOtp,
-  googleAuth,
+  // googleAuth, // disabled — uncomment handler + import + userRoute `/auth/google`
   login,
   forgotPassword,
   resetPassword,

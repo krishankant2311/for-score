@@ -14,9 +14,9 @@ const userSchema = new mongoose.Schema(
       trim: true,
       lowercase: true,
     },
+    // Omit default: empty string hit unique index dup key across all local/email users (E11000 on save).
     googleId: {
       type: String,
-      default: '',
       trim: true,
     },
     authProvider: {
@@ -152,7 +152,14 @@ const userSchema = new mongoose.Schema(
   }
 );
 
-userSchema.index({ googleId: 1 }, { unique: true, sparse: true });
+// Unique only for real Google subject ids; omit "" / unset from index (sparse still indexes "").
+userSchema.index(
+  { googleId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { googleId: { $type: 'string', $gt: '' } },
+  }
+);
 
 const User = mongoose.model('User', userSchema);
 
