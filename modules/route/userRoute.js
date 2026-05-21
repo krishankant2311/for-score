@@ -7,7 +7,7 @@ const {
   verifySignupOtp,
   resendSignupOtp,
   login,
-  // googleAuth — Google sign-in disabled (handler commented in userController)
+  googleAuth,
   forgotPassword,
   resetPassword,
   getUserProfile,
@@ -155,6 +155,13 @@ const {
   upsertWaterLog,
 } = require('../controller/waterLogController');
 const {
+  upsertBodyWeightLog,
+  getBodyWeightForDate,
+  getLatestBodyWeight,
+  getBodyWeightHistory,
+  deleteBodyWeightLog,
+} = require('../controller/bodyWeightLogController');
+const {
   getNutritionCheatSheetForUser,
   getNutritionCheatSheetByIdForUser,
 } = require('../controller/nutritionCheatSheetController');
@@ -163,7 +170,7 @@ router.post('/signup', upload.none(), signup);
 router.post('/verify-signup-otp', upload.none(), verifySignupOtp);
 router.post('/resend-signup-otp', upload.none(), resendSignupOtp);
 router.post('/login', upload.none(), login);
-// router.post('/auth/google', upload.none(), googleAuth); // Google login disabled
+router.post('/auth/google', upload.none(), googleAuth);
 router.post('/forgot-password', upload.none(), forgotPassword);
 router.post('/reset-password', upload.none(), resetPassword);
 router.get('/profile', upload.none(), verifyAccessToken, getUserProfile);
@@ -202,6 +209,14 @@ router.get('/get-all-measurements', upload.none(), verifyAccessToken, getAllMeas
 router.get('/get-measurements/:id', upload.none(), verifyAccessToken, getMeasurementById);
 router.post('/update-measurements/:id', upload.none(), verifyAccessToken, updateMeasurement);
 router.post('/delete-measurements/:id', upload.none(), verifyAccessToken, deleteMeasurement);
+
+// Body weight log (workout modal — one entry per day, history list)
+router.get('/body-weight/history', upload.none(), verifyAccessToken, getBodyWeightHistory);
+router.get('/body-weight/latest', upload.none(), verifyAccessToken, getLatestBodyWeight);
+router.get('/body-weight/today', upload.none(), verifyAccessToken, getBodyWeightForDate);
+router.get('/body-weight', upload.none(), verifyAccessToken, getBodyWeightForDate);
+router.post('/body-weight', upload.none(), verifyAccessToken, upsertBodyWeightLog);
+router.post('/body-weight/:id/delete', upload.none(), verifyAccessToken, deleteBodyWeightLog);
 
 // Privacy Policy (User read-only)
 router.get('/get-all-privacy-policy-byuser', upload.none(), verifyAccessToken, getAllPrivacyPoliciesUser);

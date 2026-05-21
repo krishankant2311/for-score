@@ -102,25 +102,30 @@ const addFoodByAdmin = async (req, res) => {
   }
 };
 
-// 2. User - Get global food catalog (admin created)
+// 2. User or Admin - Get global food catalog
 const getAllFoods = async (req, res) => {
   try {
-    const token = req.token;
-    const user_id = token?._id;
-
-    const user = await User.findById(user_id);
-    if (!user) {
-      return res.status(400).json({
-        success: false,
-        message: 'User not found',
-      });
+    const admin = await getValidAdmin(req.token);
+    if (!admin) {
+      const user = await User.findById(req.token?._id);
+      if (!user) {
+        return res.status(400).json({
+          success: false,
+          message: 'User not found',
+        });
+      }
     }
 
     const category = req.query.category;
     const mealType = req.query.mealType;
+    const search = (req.query.search || '').trim();
     const query = { status: { $ne: 'Deleted' } };
     if (category && allowedCategories.includes(category)) query.category = category;
     if (mealType && allowedMealTypes.includes(mealType)) query.mealType = mealType;
+    if (search) {
+      const regex = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      query.name = regex;
+    }
 
     const foods = await Food.find(query)
       .sort({ createdAt: -1 })
@@ -176,18 +181,18 @@ const getAllFoodCategories = async (req, res) => {
   }
 };
 
-// 4. User - Get single food by id
+// 4. User or Admin - Get single food by id
 const getFoodById = async (req, res) => {
   try {
-    const token = req.token;
-    const user_id = token?._id;
-
-    const user = await User.findById(user_id);
-    if (!user) {
-      return res.status(400).json({
-        success: false,
-        message: 'User not found',
-      });
+    const admin = await getValidAdmin(req.token);
+    if (!admin) {
+      const user = await User.findById(req.token?._id);
+      if (!user) {
+        return res.status(400).json({
+          success: false,
+          message: 'User not found',
+        });
+      }
     }
 
     const { id } = req.params;
