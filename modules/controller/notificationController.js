@@ -6,6 +6,7 @@ const NotificationRead = require('../model/notificationReadModel');
 const {
   sendOneSignalNotification,
   getOneSignalDeliveryError,
+  collectInvalidIds,
 } = require('../service/oneSignalService');
 
 const normalizeRecipientMode = (raw, { toAll, mongoCount }) => {
@@ -100,6 +101,15 @@ const splitRecipientIds = (ids) => {
   return { mongoUserIds, oneSignalIds };
 };
 
+/** Latest subscription id per user (last app login wins). */
+const pickCurrentSubscriptionId = (u) => {
+  const history = (u?.oneSignalPlayerIds || [])
+    .map((id) => String(id).trim())
+    .filter(Boolean);
+  if (history.length) return history[history.length - 1];
+  return u?.oneSignalPlayerId ? String(u.oneSignalPlayerId).trim() : '';
+};
+
 /** Resolve OneSignal ids from Mongo user _id list (admin can pass userIds instead of playerIds). */
 const resolvePlayerIdsFromMongoUserIds = async (mongoUserIds) => {
   if (!mongoUserIds.length) return [];
@@ -113,13 +123,41 @@ const resolvePlayerIdsFromMongoUserIds = async (mongoUserIds) => {
 
   const ids = new Set();
   for (const u of users) {
-    if (u.oneSignalPlayerId) ids.add(String(u.oneSignalPlayerId).trim());
-    (u.oneSignalPlayerIds || []).forEach((id) => {
-      const v = String(id).trim();
-      if (v) ids.add(v);
-    });
+    const subId = pickCurrentSubscriptionId(u);
+    if (subId) ids.add(subId);
   }
   return [...ids];
+};
+
+/** Remove invalid subscription ids from user records after OneSignal rejects them. */
+const pruneInvalidSubscriptionIds = async (mongoUserIds, invalidIds) => {
+  const invalid = new Set(
+    (invalidIds || []).map((id) => String(id).trim()).filter(Boolean)
+  );
+  if (!invalid.size || !mongoUserIds.length) return;
+
+  const users = await User.find({
+    _id: { $in: mongoUserIds },
+    status: { $ne: 'Deleted' },
+  });
+
+  for (const user of users) {
+    let changed = false;
+    if (user.oneSignalPlayerId && invalid.has(String(user.oneSignalPlayerId).trim())) {
+      user.oneSignalPlayerId = '';
+      changed = true;
+    }
+    const before = Array.isArray(user.oneSignalPlayerIds) ? user.oneSignalPlayerIds.length : 0;
+    user.oneSignalPlayerIds = (user.oneSignalPlayerIds || [])
+      .map((id) => String(id).trim())
+      .filter((id) => id && !invalid.has(id));
+    if (user.oneSignalPlayerIds.length !== before) changed = true;
+    if (!user.oneSignalPlayerId && user.oneSignalPlayerIds.length) {
+      user.oneSignalPlayerId = user.oneSignalPlayerIds[user.oneSignalPlayerIds.length - 1];
+      changed = true;
+    }
+    if (changed) await user.save();
+  }
 };
 
 const getValidAdmin = async (token) => {
@@ -211,7 +249,17 @@ const sendNotificationByAdmin = async (req, res) => {
       sendToAll: toAll,
     });
 
+    const invalidIds = collectInvalidIds(onesignalResp?.errors);
+    if (invalidIds.length) {
+      await pruneInvalidSubscriptionIds(allMongoUserIds, invalidIds);
+    }
+
     const deliveryError = getOneSignalDeliveryError(onesignalResp);
+    const deliveredIds = toAll
+      ? []
+      : onesignalResp?._skippedInvalidIds
+        ? ids.filter((id) => !onesignalResp._skippedInvalidIds.includes(String(id)))
+        : ids;
     // Store only admin-selected Mongo user ids (not OneSignal reverse-lookup duplicates).
     const targetUserIds = toAll ? [] : toObjectIdList(allMongoUserIds);
     const recipientMode = normalizeRecipientMode(recipientModeBody, {
@@ -228,7 +276,7 @@ const sendNotificationByAdmin = async (req, res) => {
       userIds: targetUserIds,
       onesignal: {
         notificationId: onesignalResp?.id || '',
-        playerIds: toAll ? [] : ids,
+        playerIds: toAll ? [] : deliveredIds.length ? deliveredIds : ids,
         deliveryMethod: onesignalResp?._deliveryMethod || '',
         raw: onesignalResp || {},
       },

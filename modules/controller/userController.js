@@ -2114,12 +2114,11 @@ const saveOneSignalPlayerId = async (req, res) => {
 
     user.oneSignalPlayerId = value;
     const existing = Array.isArray(user.oneSignalPlayerIds)
-      ? user.oneSignalPlayerIds.map((id) => String(id))
+      ? user.oneSignalPlayerIds.map((id) => String(id).trim()).filter(Boolean)
       : [];
-    if (!existing.includes(value)) {
-      existing.push(value);
-    }
-    user.oneSignalPlayerIds = existing;
+    const next = existing.includes(value) ? existing : [...existing, value];
+    // Keep only the latest 5 subscription ids (prevents stale ids breaking admin push).
+    user.oneSignalPlayerIds = next.slice(-5);
     await user.save();
 
     const result = user.toObject();
