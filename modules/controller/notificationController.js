@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const { Admin } = require('../model/adminModel');
 const User = require('../model/userModel');
 const Notification = require('../model/notificationModel');
@@ -6,6 +7,22 @@ const {
   sendOneSignalNotification,
   getOneSignalDeliveryError,
 } = require('../service/oneSignalService');
+
+const normalizeRecipientMode = (raw, { toAll, mongoCount }) => {
+  const v = String(raw ?? '').trim().toLowerCase();
+  if (toAll || v === 'all') return 'all';
+  if (v === 'active' || v === 'activeusers' || v === 'active_users') return 'active';
+  if (v === 'custom' || v === 'selected') return 'custom';
+  return mongoCount > 0 ? 'custom' : 'all';
+};
+
+/** Dedupe Mongo ids (string vs ObjectId) for storage and display. */
+const toObjectIdList = (ids) => {
+  const unique = [...new Set(ids.map((id) => String(id).trim()).filter(Boolean))];
+  return unique
+    .filter((id) => mongoose.Types.ObjectId.isValid(id))
+    .map((id) => new mongoose.Types.ObjectId(id));
+};
 
 const toBool = (value) => {
   if (value === undefined || value === null || value === '') return false;
@@ -139,8 +156,15 @@ const sendNotificationByAdmin = async (req, res) => {
       });
     }
 
-    const { title, message, sendToAll, playerIds, userIds: mongoUserIdsBody, data } =
-      req.body;
+    const {
+      title,
+      message,
+      sendToAll,
+      playerIds,
+      userIds: mongoUserIdsBody,
+      recipientMode: recipientModeBody,
+      data,
+    } = req.body;
 
     if (!title?.trim() || !message?.trim()) {
       return res.status(400).json({
@@ -188,20 +212,19 @@ const sendNotificationByAdmin = async (req, res) => {
     });
 
     const deliveryError = getOneSignalDeliveryError(onesignalResp);
-    const targetUserIds = toAll
-      ? []
-      : [
-          ...new Set([
-            ...(await resolveUserIdsByPlayerIds(ids)),
-            ...allMongoUserIds,
-          ]),
-        ];
+    // Store only admin-selected Mongo user ids (not OneSignal reverse-lookup duplicates).
+    const targetUserIds = toAll ? [] : toObjectIdList(allMongoUserIds);
+    const recipientMode = normalizeRecipientMode(recipientModeBody, {
+      toAll,
+      mongoCount: targetUserIds.length,
+    });
 
     const doc = await Notification.create({
       title: title.trim(),
       message: message.trim(),
       data: data && typeof data === 'object' ? data : {},
       target: toAll ? 'All' : 'Users',
+      recipientMode,
       userIds: targetUserIds,
       onesignal: {
         notificationId: onesignalResp?.id || '',
