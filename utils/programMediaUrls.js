@@ -66,6 +66,163 @@ const setByPath = (root, pathStr, value) => {
   cur[segments[segments.length - 1]] = value;
 };
 
+const isVideoMediaUrl = (url) =>
+  /\.(mp4|webm|ogg|mov|m4v|mkv|avi)(\?|#|$)/i.test(String(url || '').trim());
+
+const isImageMediaUrl = (url) =>
+  /\.(png|jpe?g|gif|webp|svg|bmp|heic|avif)(\?|#|$)/i.test(String(url || '').trim());
+
+/** Keep video_url / thumbnail_url and mediaUrls[] in sync on one library exercise row. */
+const applyMediaFieldToExercise = (exercise, field, url) => {
+  if (!exercise || typeof exercise !== 'object' || Array.isArray(exercise)) return;
+  const u = String(url || '').trim();
+  if (!u) return;
+
+  const f = String(field || '').trim();
+  if (f === 'video_url' || f === 'videoUrl') {
+    exercise.video_url = u;
+    exercise.videoUrl = u;
+    exercise.media_type = exercise.media_type || exercise.mediaType || 'video';
+    exercise.mediaType = exercise.media_type;
+  } else if (f === 'thumbnail_url' || f === 'thumbnailUrl') {
+    exercise.thumbnail_url = u;
+    exercise.thumbnailUrl = u;
+  } else if (f === 'media_url' || f === 'mediaUrl') {
+    if (isVideoMediaUrl(u)) {
+      exercise.video_url = u;
+      exercise.media_type = 'video';
+    } else {
+      exercise.thumbnail_url = u;
+    }
+  }
+
+  const urls = [];
+  const push = (x) => {
+    const s = String(x || '').trim();
+    if (s && !urls.includes(s)) urls.push(s);
+  };
+  push(exercise.video_url);
+  push(exercise.videoUrl);
+  push(exercise.thumbnail_url);
+  push(exercise.thumbnailUrl);
+  if (Array.isArray(exercise.mediaUrls)) {
+    for (const x of exercise.mediaUrls) push(x);
+  }
+  exercise.mediaUrls = urls;
+};
+
+/** After setByPath, also mirror A↔workoutA (and B/C) so admin + mobile stay aligned. */
+const mirrorLibraryMediaPath = (exerciseLibraryObj, pathStr, url) => {
+  const segments = parsePathSegments(pathStr);
+  if (segments.length < 3) return;
+
+  let letter = String(segments[0]).toUpperCase();
+  if (letter.startsWith('WORKOUT') && letter.length === 7) {
+    letter = letter.slice(7);
+  }
+  const idx = segments[1];
+  const field = segments[2];
+  if (!/^[ABC]$/.test(letter) || typeof idx !== 'number') return;
+
+  const altKey = `workout${letter.toUpperCase()}`;
+  const primaryList = exerciseLibraryObj[letter.toUpperCase()];
+  const altList = exerciseLibraryObj[altKey];
+
+  if (Array.isArray(primaryList) && primaryList[idx]) {
+    applyMediaFieldToExercise(primaryList[idx], field, url);
+  }
+  if (Array.isArray(altList) && altList[idx]) {
+    applyMediaFieldToExercise(altList[idx], field, url);
+  }
+};
+
+/** Duplicate A/B/C lists onto workoutA/workoutB/workoutC + UPPER/LOWER/FULL aliases. */
+const syncExerciseLibraryWorkoutAliases = (exerciseLibraryObj) => {
+  if (!exerciseLibraryObj || typeof exerciseLibraryObj !== 'object') return;
+
+  const pairs = [
+    ['A', 'workoutA', 'LOWER'],
+    ['B', 'workoutB', 'UPPER'],
+    ['C', 'workoutC', 'FULL'],
+  ];
+
+  for (const [letter, workoutKey, splitKey] of pairs) {
+    const primary = exerciseLibraryObj[letter];
+    if (!Array.isArray(primary) || !primary.length) continue;
+
+    const cloned = primary.map((ex) => {
+      if (!ex || typeof ex !== 'object') return ex;
+      const copy = { ...ex };
+      applyMediaFieldToExercise(copy, 'video_url', copy.video_url || copy.videoUrl);
+      applyMediaFieldToExercise(copy, 'thumbnail_url', copy.thumbnail_url || copy.thumbnailUrl);
+      return copy;
+    });
+
+    exerciseLibraryObj[workoutKey] = JSON.parse(JSON.stringify(cloned));
+    exerciseLibraryObj[splitKey] = JSON.parse(JSON.stringify(cloned));
+  }
+};
+
+const libraryExerciseToWorkoutRow = (libEx) => {
+  if (!libEx || typeof libEx !== 'object') return libEx;
+  const urls = [];
+  const push = (u) => {
+    const s = String(u || '').trim();
+    if (s && !urls.includes(s)) urls.push(s);
+  };
+  push(libEx.video_url);
+  push(libEx.videoUrl);
+  push(libEx.thumbnail_url);
+  push(libEx.thumbnailUrl);
+  if (Array.isArray(libEx.mediaUrls)) {
+    for (const u of libEx.mediaUrls) push(u);
+  }
+
+  return {
+    ...libEx,
+    name: libEx.name,
+    mediaUrls: urls,
+    pendingUploads: [],
+  };
+};
+
+/** Copy persisted media from exerciseLibrary into program.workouts for admin re-edit. */
+const syncWorkoutsFromExerciseLibrary = (workouts, exerciseLibraryObj) => {
+  if (!workouts || typeof workouts !== 'object' || Array.isArray(workouts)) return workouts;
+  if (!exerciseLibraryObj || typeof exerciseLibraryObj !== 'object') return workouts;
+
+  const out = { ...workouts };
+  for (const letter of ['A', 'B', 'C']) {
+    const libList =
+      (Array.isArray(exerciseLibraryObj[letter]) && exerciseLibraryObj[letter]) ||
+      (Array.isArray(exerciseLibraryObj[`workout${letter}`]) &&
+        exerciseLibraryObj[`workout${letter}`]) ||
+      [];
+    const woList = Array.isArray(out[letter]) ? out[letter] : [];
+    if (!libList.length) continue;
+
+    out[letter] = woList.map((ex, i) => {
+      const slotKey = String(ex?.slotKey ?? '').trim();
+      let lib =
+        libList[i] && typeof libList[i] === 'object' ? libList[i] : null;
+      if (slotKey) {
+        const hit = libList.find(
+          (row) => row && String(row.slotKey ?? '').trim() === slotKey
+        );
+        if (hit) lib = hit;
+      }
+      if (!lib) return ex;
+      const merged = {
+        ...(typeof ex === 'object' && ex ? ex : {}),
+        ...libraryExerciseToWorkoutRow(lib),
+        name: String(ex?.name ?? lib.name ?? '').trim() || lib.name,
+      };
+      return merged;
+    });
+  }
+  return out;
+};
+
 /**
  * multipart field `recovery_media` (multiple files).
  * Optional `recovery_media_targets` JSON array of dot-paths — same length as files, e.g.
@@ -135,12 +292,16 @@ const mergeLibraryMediaUploads = (req, exerciseLibraryObj) => {
     if (!file?.path || !targets[i]) return;
     const url = persistedUploadPublicUrl(req, file.path);
     if (!url) return;
+    const pathStr = String(targets[i]).trim();
     try {
-      setByPath(exerciseLibraryObj, String(targets[i]).trim(), url);
+      setByPath(exerciseLibraryObj, pathStr, url);
+      mirrorLibraryMediaPath(exerciseLibraryObj, pathStr, url);
     } catch (_) {
       /* ignore bad path key */
     }
   });
+
+  syncExerciseLibraryWorkoutAliases(exerciseLibraryObj);
 };
 
 /**
@@ -189,6 +350,8 @@ const rewriteProgramMediaUrlsForResponse = (req, program) => {
 module.exports = {
   mergeRecoveryMediaUploads,
   mergeLibraryMediaUploads,
+  syncExerciseLibraryWorkoutAliases,
+  syncWorkoutsFromExerciseLibrary,
   rewriteProgramMediaUrlsForResponse,
   filePathToWebPath,
   stripBlobMediaUrls,

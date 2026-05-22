@@ -159,10 +159,23 @@ const resolveWorkoutDisplayTitle = (scheduleToken, weekGrid, program, dayKey) =>
     const modLabel = modKey && grid[modKey] != null ? String(grid[modKey]).trim() : '';
     if (modLabel) return modLabel;
 
+    const whatsInside = String(program?.whatsInside ?? '').trim();
+    const moduleNames = [
+      'Full Body Ignite',
+      'Posterior Power',
+      'Upper Body Sculpt',
+      'Lower Body Burn',
+      'Core & Conditioning',
+    ];
+    const letterIdx = token.toUpperCase().charCodeAt(0) - 'A'.charCodeAt(0);
+    if (letterIdx >= 0 && letterIdx < moduleNames.length && whatsInside.includes(moduleNames[letterIdx])) {
+      return moduleNames[letterIdx];
+    }
+
     const meta =
       program?.workoutsMeta?.[token.toUpperCase()] ?? program?.workoutsMeta?.[token];
     const fmt = meta?.format ? String(meta.format).trim() : '';
-    if (fmt) {
+    if (fmt && !/^standard sets$/i.test(fmt)) {
       const short = fmt.split(/\s*[—–-]\s*/)[0].trim();
       return short || fmt;
     }
@@ -377,12 +390,23 @@ const parseExerciseSlotFromProgram = (raw, order, programId) => {
 
   const instructionsList = parseInstructionsArray(o.instructions);
 
-  const videoPath = String(
+  let videoPath = String(
     o.video_url ?? o.videoUrl ?? o.mediaUrl ?? o.video ?? ''
   ).trim();
-  const thumbPath = String(
+  let thumbPath = String(
     o.thumbnail_url ?? o.thumbnailUrl ?? o.thumbUrl ?? o.thumbnail ?? ''
   ).trim();
+  if (!videoPath && !thumbPath && Array.isArray(o.mediaUrls)) {
+    for (const u of o.mediaUrls) {
+      const s = String(u || '').trim();
+      if (!s) continue;
+      if (/\.(mp4|webm|ogg|mov|m4v|mkv|avi)(\?|#|$)/i.test(s)) {
+        if (!videoPath) videoPath = s;
+      } else if (!thumbPath) {
+        thumbPath = s;
+      }
+    }
+  }
   const mediaType = String(o.media_type ?? o.mediaType ?? '').trim();
   const notes = o.notes ? String(o.notes) : '';
 

@@ -4,6 +4,8 @@ const { toPublicFileUrl } = require('../../utils/publicFileUrl');
 const {
   mergeRecoveryMediaUploads,
   mergeLibraryMediaUploads,
+  syncExerciseLibraryWorkoutAliases,
+  syncWorkoutsFromExerciseLibrary,
   rewriteProgramMediaUrlsForResponse,
   stripBlobMediaUrls,
 } = require('../../utils/programMediaUrls');
@@ -277,6 +279,25 @@ const buildProgramDocFromBody = (req) => {
   if (doc.exerciseLibrary && typeof doc.exerciseLibrary === 'object') {
     mergeLibraryMediaUploads(req, doc.exerciseLibrary);
     stripBlobMediaUrls(doc.exerciseLibrary);
+    syncExerciseLibraryWorkoutAliases(doc.exerciseLibrary);
+  }
+
+  if (doc.workouts && typeof doc.workouts === 'object') {
+    doc.workouts = syncWorkoutsFromExerciseLibrary(doc.workouts, doc.exerciseLibrary);
+  }
+  if (doc.page3 && typeof doc.page3 === 'object') {
+    for (const letter of ['A', 'B', 'C']) {
+      const list = doc.workouts?.[letter];
+      if (Array.isArray(list)) {
+        doc.page3[letter] = list;
+        doc.page3[`workout${letter}`] = list;
+      }
+    }
+  }
+  if (doc.programDetail && typeof doc.programDetail === 'object') {
+    doc.programDetail.exerciseLibrary = doc.exerciseLibrary;
+    doc.programDetail.workouts = doc.workouts;
+    if (doc.page3) doc.programDetail.page3 = doc.page3;
   }
 
   // Also fold recovery_media into doc.recovery.mediaUrls (matches new model)
