@@ -5,6 +5,7 @@ const Food = require('../model/foodModel');
 const {
   SCHEDULED_MEAL_TYPES,
   enrichMealLogForResponse,
+  enrichMealLogsWithItemImages,
   buildScheduledMealSlots,
   countCompletedScheduledSlots,
 } = require('../../utils/mealLogHelpers');
@@ -365,7 +366,7 @@ const getDailyMeals = async (req, res) => {
       .sort({ mealType: 1, createdAt: 1 })
       .lean();
 
-    const sortedLogs = logs.map((log) => enrichMealLogForResponse(log));
+    const sortedLogs = await enrichMealLogsWithItemImages(req, logs);
 
     const summary = buildDailyNutritionPayload(user, sortedLogs, normalizedDate);
 

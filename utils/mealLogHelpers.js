@@ -3,6 +3,11 @@
  * (dashboard, nutrition summary, /nutrition/meals, completion APIs).
  */
 
+const mongoose = require('mongoose');
+const Food = require('../modules/model/foodModel');
+const NutritionItem = require('../modules/model/nutritionItemModel');
+const { toPublicFileUrl } = require('./publicFileUrl');
+
 const SCHEDULED_MEAL_TYPES = [
   'Breakfast',
   'Morning Snack',
@@ -53,6 +58,75 @@ const enrichMealLogForResponse = (log) => {
   };
 };
 
+const resolveItemImageFromMaps = (item, foodImageById, nutritionImageById) => {
+  if (!item) return '';
+  const foodId = item.foodId != null ? String(item.foodId) : '';
+  if (foodId && foodImageById.has(foodId)) return foodImageById.get(foodId) || '';
+  const nutritionItemId = item.nutritionItemId != null ? String(item.nutritionItemId) : '';
+  if (nutritionItemId && nutritionImageById.has(nutritionItemId)) {
+    return nutritionImageById.get(nutritionItemId) || '';
+  }
+  return '';
+};
+
+/** Attach public `image` URL on each meal item from Food.image or NutritionItem.imagePath. */
+const enrichMealLogsWithItemImages = async (req, logs) => {
+  const list = Array.isArray(logs) ? logs : [];
+  const foodIds = new Set();
+  const nutritionIds = new Set();
+
+  for (const log of list) {
+    for (const it of log?.items || []) {
+      if (it?.foodId && mongoose.Types.ObjectId.isValid(String(it.foodId))) {
+        foodIds.add(String(it.foodId));
+      }
+      if (it?.nutritionItemId && mongoose.Types.ObjectId.isValid(String(it.nutritionItemId))) {
+        nutritionIds.add(String(it.nutritionItemId));
+      }
+    }
+  }
+
+  const foodImageById = new Map();
+  const nutritionImageById = new Map();
+
+  if (foodIds.size) {
+    const foods = await Food.find({
+      _id: { $in: [...foodIds] },
+      status: { $ne: 'Deleted' },
+    })
+      .select('image')
+      .lean();
+    for (const f of foods) {
+      const stored = String(f.image ?? '').trim();
+      foodImageById.set(String(f._id), stored ? toPublicFileUrl(req, stored) : '');
+    }
+  }
+
+  if (nutritionIds.size) {
+    const nutritionRows = await NutritionItem.find({
+      _id: { $in: [...nutritionIds] },
+      status: 'Active',
+    })
+      .select('imagePath')
+      .lean();
+    for (const n of nutritionRows) {
+      const stored = String(n.imagePath ?? '').trim();
+      nutritionImageById.set(String(n._id), stored ? toPublicFileUrl(req, stored) : '');
+    }
+  }
+
+  return list.map((log) => {
+    const base = enrichMealLogForResponse(log);
+    return {
+      ...base,
+      items: (base.items || []).map((it) => ({
+        ...it,
+        image: resolveItemImageFromMaps(it, foodImageById, nutritionImageById),
+      })),
+    };
+  });
+};
+
 const indexLogsByMealType = (logs) => {
   const byType = {};
   for (const log of logs || []) {
@@ -93,6 +167,7 @@ module.exports = {
   toIsoOrNull,
   resolvedCompletedAtForResponse,
   enrichMealLogForResponse,
+  enrichMealLogsWithItemImages,
   buildScheduledMealSlots,
   countCompletedScheduledSlots,
 };
