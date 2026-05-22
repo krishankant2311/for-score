@@ -128,12 +128,23 @@ const mirrorLibraryMediaPath = (exerciseLibraryObj, pathStr, url) => {
   const primaryList = exerciseLibraryObj[letter.toUpperCase()];
   const altList = exerciseLibraryObj[altKey];
 
-  if (Array.isArray(primaryList) && primaryList[idx]) {
-    applyMediaFieldToExercise(primaryList[idx], field, url);
-  }
-  if (Array.isArray(altList) && altList[idx]) {
-    applyMediaFieldToExercise(altList[idx], field, url);
-  }
+  const applyToRow = (row) => {
+    if (!row || typeof row !== 'object') return;
+    if (field === 'mediaUrls' && typeof segments[3] === 'number') {
+      if (!Array.isArray(row.mediaUrls)) row.mediaUrls = [];
+      row.mediaUrls[segments[3]] = url;
+      applyMediaFieldToExercise(
+        row,
+        isVideoMediaUrl(url) ? 'video_url' : 'thumbnail_url',
+        url
+      );
+      return;
+    }
+    applyMediaFieldToExercise(row, field, url);
+  };
+
+  if (Array.isArray(primaryList) && primaryList[idx]) applyToRow(primaryList[idx]);
+  if (Array.isArray(altList) && altList[idx]) applyToRow(altList[idx]);
 };
 
 /** Duplicate A/B/C lists onto workoutA/workoutB/workoutC + UPPER/LOWER/FULL aliases. */

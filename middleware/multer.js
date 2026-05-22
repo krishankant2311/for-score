@@ -32,12 +32,17 @@ const upload = multer({
 
 // Exercise media: video (mp4, mov), image, gif – max 50 MB
 const exerciseFileFilter = (req, file, cb) => {
-  const allowed = /jpeg|jpg|png|gif|webp|mp4|mov/i;
+  const allowed = /jpeg|jpg|png|gif|webp|mp4|mov|webm|m4v|mkv|avi/i;
   const ext = path.extname(file.originalname).slice(1);
-  if (allowed.test(ext)) {
+  const mime = String(file.mimetype || '').toLowerCase();
+  if (
+    allowed.test(ext) ||
+    mime.startsWith('image/') ||
+    mime.startsWith('video/')
+  ) {
     cb(null, true);
   } else {
-    cb(new Error('Allowed: images (jpeg, png, gif, webp), video (mp4, mov)'), false);
+    cb(new Error('Allowed: images (jpeg, png, gif, webp), video (mp4, mov, webm)'), false);
   }
 };
 
