@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const { Admin } = require('../model/adminModel');
 const User = require('../model/userModel');
 const Notification = require('../model/notificationModel');
@@ -5,7 +6,16 @@ const NotificationRead = require('../model/notificationReadModel');
 const {
   sendOneSignalNotification,
   getOneSignalDeliveryError,
+  collectInvalidIds,
+  isOneSignalDeliveryOk,
 } = require('../service/oneSignalService');
+
+const dedupeMongoUserIds = (ids) => {
+  const unique = [...new Set(ids.map((id) => String(id).trim()).filter(Boolean))];
+  return unique
+    .filter((id) => mongoose.Types.ObjectId.isValid(id))
+    .map((id) => new mongoose.Types.ObjectId(id));
+};
 
 const toBool = (value) => {
   if (value === undefined || value === null || value === '') return false;
@@ -83,6 +93,15 @@ const splitRecipientIds = (ids) => {
   return { mongoUserIds, oneSignalIds };
 };
 
+/** One subscription id per user — latest saved id (avoids stale entries in history). */
+const pickSubscriptionId = (u) => {
+  const history = (u?.oneSignalPlayerIds || [])
+    .map((id) => String(id).trim())
+    .filter(Boolean);
+  if (history.length) return history[history.length - 1];
+  return u?.oneSignalPlayerId ? String(u.oneSignalPlayerId).trim() : '';
+};
+
 /** Resolve OneSignal ids from Mongo user _id list (admin can pass userIds instead of playerIds). */
 const resolvePlayerIdsFromMongoUserIds = async (mongoUserIds) => {
   if (!mongoUserIds.length) return [];
@@ -94,15 +113,42 @@ const resolvePlayerIdsFromMongoUserIds = async (mongoUserIds) => {
     .select('oneSignalPlayerId oneSignalPlayerIds')
     .lean();
 
-  const ids = new Set();
+  const ids = [];
   for (const u of users) {
-    if (u.oneSignalPlayerId) ids.add(String(u.oneSignalPlayerId).trim());
-    (u.oneSignalPlayerIds || []).forEach((id) => {
-      const v = String(id).trim();
-      if (v) ids.add(v);
-    });
+    const subId = pickSubscriptionId(u);
+    if (subId) ids.push(subId);
   }
-  return [...ids];
+  return ids;
+};
+
+const pruneInvalidSubscriptionIds = async (mongoUserIds, invalidIds) => {
+  const invalid = new Set(
+    (invalidIds || []).map((id) => String(id).trim()).filter(Boolean)
+  );
+  if (!invalid.size || !mongoUserIds.length) return;
+
+  const users = await User.find({
+    _id: { $in: mongoUserIds },
+    status: { $ne: 'Deleted' },
+  });
+
+  for (const user of users) {
+    let changed = false;
+    if (user.oneSignalPlayerId && invalid.has(String(user.oneSignalPlayerId).trim())) {
+      user.oneSignalPlayerId = '';
+      changed = true;
+    }
+    const before = (user.oneSignalPlayerIds || []).length;
+    user.oneSignalPlayerIds = (user.oneSignalPlayerIds || [])
+      .map((id) => String(id).trim())
+      .filter((id) => id && !invalid.has(id));
+    if (user.oneSignalPlayerIds.length !== before) changed = true;
+    if (!user.oneSignalPlayerId && user.oneSignalPlayerIds.length) {
+      user.oneSignalPlayerId = user.oneSignalPlayerIds[user.oneSignalPlayerIds.length - 1];
+      changed = true;
+    }
+    if (changed) await user.save();
+  }
 };
 
 const getValidAdmin = async (token) => {
@@ -187,15 +233,15 @@ const sendNotificationByAdmin = async (req, res) => {
       sendToAll: toAll,
     });
 
+    const invalidIds = collectInvalidIds(onesignalResp?.errors);
+    if (invalidIds.length) {
+      await pruneInvalidSubscriptionIds(allMongoUserIds, invalidIds);
+    }
+
     const deliveryError = getOneSignalDeliveryError(onesignalResp);
-    const targetUserIds = toAll
-      ? []
-      : [
-          ...new Set([
-            ...(await resolveUserIdsByPlayerIds(ids)),
-            ...allMongoUserIds,
-          ]),
-        ];
+    const targetUserIds = toAll ? [] : dedupeMongoUserIds(allMongoUserIds);
+    const invalidSet = new Set(invalidIds.map(String));
+    const sentPlayerIds = toAll ? [] : ids.filter((id) => !invalidSet.has(String(id)));
 
     const doc = await Notification.create({
       title: title.trim(),
@@ -205,7 +251,7 @@ const sendNotificationByAdmin = async (req, res) => {
       userIds: targetUserIds,
       onesignal: {
         notificationId: onesignalResp?.id || '',
-        playerIds: toAll ? [] : ids,
+        playerIds: toAll ? [] : isOneSignalDeliveryOk(onesignalResp) ? sentPlayerIds : ids,
         deliveryMethod: onesignalResp?._deliveryMethod || '',
         raw: onesignalResp || {},
       },
