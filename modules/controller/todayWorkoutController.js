@@ -128,6 +128,62 @@ const classifyCadenceDayType = (token) => {
   return 'workout';
 };
 
+const MODULE_KEYS_BY_LETTER = {
+  A: 'module1',
+  B: 'module2',
+  C: 'module3',
+  D: 'module4',
+  E: 'module5',
+};
+
+/**
+ * Human-readable workout title for dashboard / today card (not library key "A"/"B"/"C").
+ */
+const resolveWorkoutDisplayTitle = (scheduleToken, weekGrid, program, dayKey) => {
+  const token =
+    scheduleToken != null && scheduleToken !== '' ? String(scheduleToken).trim() : '';
+  const grid = weekGrid && typeof weekGrid === 'object' ? weekGrid : {};
+
+  if (!token) return program?.programName || '';
+
+  if (isCadenceRestToken(token)) return 'Rest Day';
+  if (isCadenceRecoveryToken(token)) return 'Recovery';
+
+  const dayEntry = dayKey && grid[dayKey] != null ? String(grid[dayKey]).trim() : '';
+  if (dayEntry && !/^[A-E]$/i.test(dayEntry)) {
+    return dayEntry;
+  }
+
+  if (/^[A-E]$/i.test(token)) {
+    const modKey = MODULE_KEYS_BY_LETTER[token.toUpperCase()];
+    const modLabel = modKey && grid[modKey] != null ? String(grid[modKey]).trim() : '';
+    if (modLabel) return modLabel;
+
+    const meta =
+      program?.workoutsMeta?.[token.toUpperCase()] ?? program?.workoutsMeta?.[token];
+    const fmt = meta?.format ? String(meta.format).trim() : '';
+    if (fmt) {
+      const short = fmt.split(/\s*[—–-]\s*/)[0].trim();
+      return short || fmt;
+    }
+  }
+
+  const meta = program?.workoutsMeta?.[token] ?? program?.workoutsMeta?.[token.toUpperCase()];
+  if (meta && typeof meta === 'object') {
+    const fmt = String(meta.format ?? meta.title ?? '').trim();
+    if (fmt) {
+      const short = fmt.split(/\s*[—–-]\s*/)[0].trim();
+      return short || fmt;
+    }
+  }
+
+  if (token.length > 1 && !/^[A-E]$/i.test(token)) {
+    return token.charAt(0).toUpperCase() + token.slice(1);
+  }
+
+  return program?.programName || token;
+};
+
 /**
  * Builds virtual exercise slots from program.recoveryProtocol so the user can
  * see/complete a cardio item + stretches on RECOVERY days using the exact same
@@ -455,7 +511,12 @@ const inferScheduleStrategy = (weekGrid, weekNum, dayKey, program) => {
     const scheduleToken =
       scheduleTokenRaw != null && scheduleTokenRaw !== '' ? String(scheduleTokenRaw) : '';
 
-    const workoutTitle = scheduleToken || program.programName;
+    const workoutTitle = resolveWorkoutDisplayTitle(
+      scheduleToken,
+      weekGrid,
+      program,
+      dayKey
+    );
     return {
       strategy: 'cadence',
       scheduleToken,
@@ -481,21 +542,23 @@ const inferScheduleStrategy = (weekGrid, weekNum, dayKey, program) => {
 
   if (weekBucket && typeof weekBucket === 'object') {
     const slot = pickDayColumn(weekBucket, dayKey);
+    const token = slot != null ? String(slot).trim() : '';
     return {
       strategy: 'weekGrid',
-      scheduleToken: slot != null ? String(slot) : null,
-      workoutTitle: slot != null ? String(slot) : program.programName,
-      libraryToken: slot != null ? String(slot) : null,
+      scheduleToken: token || null,
+      workoutTitle: resolveWorkoutDisplayTitle(token, weekGrid, program, dayKey),
+      libraryToken: token || null,
     };
   }
 
   const topSlot = pickDayColumn(weekGrid, dayKey);
   if (topSlot != null) {
+    const token = String(topSlot).trim();
     return {
       strategy: 'flatGrid',
-      scheduleToken: String(topSlot),
-      workoutTitle: String(topSlot),
-      libraryToken: String(topSlot),
+      scheduleToken: token,
+      workoutTitle: resolveWorkoutDisplayTitle(token, weekGrid, program, dayKey),
+      libraryToken: token,
     };
   }
 
