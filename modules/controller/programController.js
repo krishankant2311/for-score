@@ -4,6 +4,7 @@ const { toPublicFileUrl } = require('../../utils/publicFileUrl');
 const {
   mergeRecoveryMediaUploads,
   mergeLibraryMediaUploads,
+  mergeWorkoutMetaMediaUploads,
   syncExerciseLibraryWorkoutAliases,
   syncWorkoutsFromExerciseLibrary,
   rewriteProgramMediaUrlsForResponse,
@@ -93,9 +94,12 @@ const normalizePersistedMediaUrl = (req, raw) => {
   return toPublicFileUrl(req, s) || s;
 };
 
-const getProgramVideoPathFromRequest = (req) => {
-  if (req.file?.path) return req.file.path;
+const getProgramIntroVideoPathFromRequest = (req) => {
   if (req.files?.video?.[0]?.path) return req.files.video[0].path;
+  return '';
+};
+
+const getProgramThumbnailPathFromRequest = (req) => {
   if (req.files?.media?.[0]?.path) return req.files.media[0].path;
   return '';
 };
@@ -264,8 +268,15 @@ const buildProgramDocFromBody = (req) => {
 
     videoPath: normalizePersistedMediaUrl(
       req,
-      getProgramVideoPathFromRequest(req) ||
+      getProgramIntroVideoPathFromRequest(req) ||
         (body.videoPath != null ? String(body.videoPath).trim() : '')
+    ),
+    thumbnail_url: normalizePersistedMediaUrl(
+      req,
+      getProgramThumbnailPathFromRequest(req) ||
+        (body.thumbnail_url != null ? String(body.thumbnail_url).trim() : '') ||
+        (detail.thumbnail_url != null ? String(detail.thumbnail_url).trim() : '') ||
+        (detail.programThumbnailUrl != null ? String(detail.programThumbnailUrl).trim() : '')
     ),
 
     createdByEmail: String(body.email || req.token?.email || '').trim(),
@@ -280,6 +291,10 @@ const buildProgramDocFromBody = (req) => {
     mergeLibraryMediaUploads(req, doc.exerciseLibrary);
     stripBlobMediaUrls(doc.exerciseLibrary);
     syncExerciseLibraryWorkoutAliases(doc.exerciseLibrary);
+  }
+  if (doc.workoutsMeta && typeof doc.workoutsMeta === 'object') {
+    mergeWorkoutMetaMediaUploads(req, doc.workoutsMeta);
+    stripBlobMediaUrls(doc.workoutsMeta);
   }
 
   if (doc.workouts && typeof doc.workouts === 'object') {
@@ -297,6 +312,8 @@ const buildProgramDocFromBody = (req) => {
   if (doc.programDetail && typeof doc.programDetail === 'object') {
     doc.programDetail.exerciseLibrary = doc.exerciseLibrary;
     doc.programDetail.workouts = doc.workouts;
+    doc.programDetail.workoutsMeta = doc.workoutsMeta;
+    if (doc.thumbnail_url) doc.programDetail.programThumbnailUrl = doc.thumbnail_url;
     if (doc.page3) doc.programDetail.page3 = doc.page3;
   }
 

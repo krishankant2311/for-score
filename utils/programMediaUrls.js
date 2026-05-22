@@ -176,15 +176,14 @@ const syncExerciseLibraryWorkoutAliases = (exerciseLibraryObj) => {
 
 const libraryExerciseToWorkoutRow = (libEx) => {
   if (!libEx || typeof libEx !== 'object') return libEx;
+  const thumb = String(libEx.thumbnail_url || libEx.thumbnailUrl || '').trim();
   const urls = [];
   const push = (u) => {
     const s = String(u || '').trim();
-    if (s && !urls.includes(s)) urls.push(s);
+    if (s && s !== thumb && !urls.includes(s)) urls.push(s);
   };
   push(libEx.video_url);
   push(libEx.videoUrl);
-  push(libEx.thumbnail_url);
-  push(libEx.thumbnailUrl);
   if (Array.isArray(libEx.mediaUrls)) {
     for (const u of libEx.mediaUrls) push(u);
   }
@@ -192,8 +191,10 @@ const libraryExerciseToWorkoutRow = (libEx) => {
   return {
     ...libEx,
     name: libEx.name,
+    thumbnail_url: thumb,
     mediaUrls: urls,
     pendingUploads: [],
+    thumbnailPending: null,
   };
 };
 
@@ -316,6 +317,37 @@ const mergeLibraryMediaUploads = (req, exerciseLibraryObj) => {
 };
 
 /**
+ * multipart `workout_meta_media` + `workout_meta_media_targets`, e.g. ["A.thumbnail_url"].
+ * Merges into `workoutsMeta` (Workout A / B / C block thumbnails).
+ */
+const mergeWorkoutMetaMediaUploads = (req, workoutsMetaObj) => {
+  if (!workoutsMetaObj || typeof workoutsMetaObj !== 'object') return;
+  const raw = req.files?.workout_meta_media;
+  const files = Array.isArray(raw) ? raw : raw ? [raw] : [];
+  if (!files.length) return;
+
+  let targets = null;
+  try {
+    const t = req.body?.workout_meta_media_targets;
+    if (t != null && String(t).trim()) targets = JSON.parse(String(t));
+  } catch (_) {
+    targets = null;
+  }
+  if (!Array.isArray(targets) || !targets.length) return;
+
+  files.forEach((file, i) => {
+    if (!file?.path || !targets[i]) return;
+    const url = persistedUploadPublicUrl(req, file.path);
+    if (!url) return;
+    try {
+      setByPath(workoutsMetaObj, String(targets[i]).trim(), url);
+    } catch (_) {
+      /* ignore bad path */
+    }
+  });
+};
+
+/**
  * Wipes browser-only `blob:` URLs from nested `thumbnail_url` / `video_url` /
  * `media_url` / `thumbnailUrl` / `videoUrl` / `mediaUrl` fields. These leak in
  * when admin frontend forgets to upload the actual file before submit.
@@ -361,6 +393,7 @@ const rewriteProgramMediaUrlsForResponse = (req, program) => {
 module.exports = {
   mergeRecoveryMediaUploads,
   mergeLibraryMediaUploads,
+  mergeWorkoutMetaMediaUploads,
   syncExerciseLibraryWorkoutAliases,
   syncWorkoutsFromExerciseLibrary,
   rewriteProgramMediaUrlsForResponse,

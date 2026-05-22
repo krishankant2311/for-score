@@ -116,7 +116,11 @@ const buildCurrentProgramCard = async (req, user) => {
       percent: progressPercent,
       label: `Week ${currentWeek} of ${totalWeeks}`,
     },
-    coverImageUrl: program.videoPath ? toPublicFileUrl(req, program.videoPath) : '',
+    coverImageUrl: program.thumbnail_url
+      ? toPublicFileUrl(req, program.thumbnail_url)
+      : program.videoPath
+        ? toPublicFileUrl(req, program.videoPath)
+        : '',
     cta: 'Change Program',
   };
 };

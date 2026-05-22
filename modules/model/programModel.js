@@ -60,6 +60,7 @@ const OverloadRowSchema = new Schema(
 
 const WorkoutMetaSchema = new Schema(
   {
+    thumbnail_url: { type: String, default: '' },
     format: { type: String, default: 'Standard sets' },
     workInterval: { type: String, default: '' },
     restBetweenSets: { type: String, default: '' },
@@ -248,6 +249,8 @@ const FitnessProgramSchema = new Schema(
     goalText: { type: String, default: '' },
     quickStats: { type: Schema.Types.Mixed },
     videoPath: { type: String, default: '' },
+    /** Program card / listing cover image (multipart field `media`) */
+    thumbnail_url: { type: String, default: '' },
 
     createdByEmail: { type: String, default: '' },
   },

@@ -183,6 +183,7 @@ const programUpload = uploadExerciseMedia.fields([
   { name: 'media', maxCount: 1 },
   { name: 'recovery_media', maxCount: 20 },
   { name: 'library_media', maxCount: 100 },
+  { name: 'workout_meta_media', maxCount: 10 },
 ]);
 
 // List + read (legacy aliases preserved so frontend doesn't break)
