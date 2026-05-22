@@ -10,12 +10,6 @@ const notificationSchema = new mongoose.Schema(
       enum: ['All', 'Users'],
       default: 'All',
     },
-    /** Admin UI: all | active | custom */
-    recipientMode: {
-      type: String,
-      enum: ['all', 'active', 'custom'],
-      default: 'custom',
-    },
     userIds: {
       type: [mongoose.Schema.Types.ObjectId],
       ref: 'User',

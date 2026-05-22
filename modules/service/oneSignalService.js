@@ -166,37 +166,13 @@ const sendOneSignalNotification = async ({
     },
   ];
 
-  const tryDelivery = async (idsToTry) => {
-    let lastResp = null;
-    for (const attempt of attempts) {
-      const body = { ...attempt.body };
-      if (attempt.method === 'include_subscription_ids') {
-        body.include_subscription_ids = idsToTry;
-      } else {
-        body.include_player_ids = idsToTry;
-      }
-      const resp = await postJson(ONESIGNAL_API_PATH, body, authHeaders);
-      resp._deliveryMethod = attempt.method;
-      lastResp = resp;
-      if (isOneSignalDeliveryOk(resp)) {
-        return resp;
-      }
-    }
-    return lastResp;
-  };
-
-  let idsToSend = [...recipientIds];
-  let lastResp = await tryDelivery(idsToSend);
-  const invalidFirst = collectInvalidIds(lastResp?.errors);
-  if (!isOneSignalDeliveryOk(lastResp) && invalidFirst.length) {
-    const invalidSet = new Set(invalidFirst.map(String));
-    const filtered = idsToSend.filter((id) => !invalidSet.has(String(id)));
-    if (filtered.length && filtered.length < idsToSend.length) {
-      idsToSend = filtered;
-      lastResp = await tryDelivery(idsToSend);
-      if (isOneSignalDeliveryOk(lastResp)) {
-        lastResp._skippedInvalidIds = invalidFirst;
-      }
+  let lastResp = null;
+  for (const attempt of attempts) {
+    const resp = await postJson(ONESIGNAL_API_PATH, attempt.body, authHeaders);
+    resp._deliveryMethod = attempt.method;
+    lastResp = resp;
+    if (isOneSignalDeliveryOk(resp)) {
+      return resp;
     }
   }
 
@@ -207,5 +183,4 @@ module.exports = {
   sendOneSignalNotification,
   isOneSignalDeliveryOk,
   getOneSignalDeliveryError,
-  collectInvalidIds,
 };
