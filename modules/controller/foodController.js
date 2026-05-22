@@ -1,6 +1,7 @@
 const { Admin } = require('../model/adminModel');
 const Food = require('../model/foodModel');
 const User = require('../model/userModel');
+const { toPublicFileUrl } = require('../../utils/publicFileUrl');
 
 const allowedCategories = ['Protein', 'Carbs', 'Vegetables', 'Fruit', 'Fats', 'Other'];
 const allowedMealTypes = [
@@ -13,26 +14,12 @@ const allowedMealTypes = [
   'Other',
 ];
 
-const buildPublicBaseUrl = (req) =>
-  process.env.PUBLIC_BASE_URL?.trim() || `${req.protocol}://${req.get('host')}`;
-
-const toPublicFileUrl = (req, storedPath) => {
-  if (!storedPath) return '';
-  const raw = String(storedPath).trim();
-  if (!raw) return '';
-  if (/^https?:\/\//i.test(raw)) return raw;
-
-  const normalized = raw.replace(/\\/g, '/');
-  const uploadsMarker = '/uploads/';
-  const idx = normalized.toLowerCase().lastIndexOf(uploadsMarker);
-  const publicPath = idx >= 0 ? normalized.slice(idx) : '';
-  if (!publicPath) return '';
-  return `${buildPublicBaseUrl(req)}${publicPath}`;
-};
-
+/** Rewrite DB `image` (disk path) to a public URL — no extra alias fields. */
 const withFoodImageUrl = (req, food) => {
   if (!food) return food;
-  return { ...food, imageUrl: toPublicFileUrl(req, food.image) };
+  const stored = String(food.image ?? '').trim();
+  const image = stored ? toPublicFileUrl(req, stored) : '';
+  return { ...food, image };
 };
 
 const getValidAdmin = async (token) => {

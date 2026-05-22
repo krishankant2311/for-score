@@ -85,6 +85,7 @@ const applyMediaFieldToExercise = (exercise, field, url) => {
     exercise.media_type = exercise.media_type || exercise.mediaType || 'video';
     exercise.mediaType = exercise.media_type;
   } else if (f === 'thumbnail_url' || f === 'thumbnailUrl') {
+    if (isVideoMediaUrl(u)) return;
     exercise.thumbnail_url = u;
     exercise.thumbnailUrl = u;
   } else if (f === 'media_url' || f === 'mediaUrl') {
@@ -96,15 +97,15 @@ const applyMediaFieldToExercise = (exercise, field, url) => {
     }
   }
 
+  const thumb = String(exercise.thumbnail_url || exercise.thumbnailUrl || '').trim();
   const urls = [];
   const push = (x) => {
     const s = String(x || '').trim();
-    if (s && !urls.includes(s)) urls.push(s);
+    if (!s || s === thumb || urls.includes(s)) return;
+    if (isVideoMediaUrl(s) || isImageMediaUrl(s) || /\/uploads\//i.test(s)) urls.push(s);
   };
   push(exercise.video_url);
   push(exercise.videoUrl);
-  push(exercise.thumbnail_url);
-  push(exercise.thumbnailUrl);
   if (Array.isArray(exercise.mediaUrls)) {
     for (const x of exercise.mediaUrls) push(x);
   }
@@ -133,11 +134,7 @@ const mirrorLibraryMediaPath = (exerciseLibraryObj, pathStr, url) => {
     if (field === 'mediaUrls' && typeof segments[3] === 'number') {
       if (!Array.isArray(row.mediaUrls)) row.mediaUrls = [];
       row.mediaUrls[segments[3]] = url;
-      applyMediaFieldToExercise(
-        row,
-        isVideoMediaUrl(url) ? 'video_url' : 'thumbnail_url',
-        url
-      );
+      applyMediaFieldToExercise(row, isVideoMediaUrl(url) ? 'video_url' : 'media_url', url);
       return;
     }
     applyMediaFieldToExercise(row, field, url);
