@@ -1361,17 +1361,21 @@ const saveTodayExercisePerformance = async (req, res) => {
       status: { $ne: 'Deleted' },
     });
 
+    const slotKeyToStore = String(ctx.slot.slotKey || '').trim();
+
     if (!log) {
       log = await WorkoutLog.create({
         userId: user_id,
         date: normalizedDate,
         exerciseName,
+        slotKey: slotKeyToStore,
         notes: (notes != null ? String(notes) : '').trim(),
         sets: parsed.cleaned,
       });
     } else {
       log.sets = parsed.cleaned;
       if (notes != null) log.notes = String(notes).trim();
+      if (slotKeyToStore) log.slotKey = slotKeyToStore;
       await log.save();
     }
 

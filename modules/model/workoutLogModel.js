@@ -42,6 +42,12 @@ const workoutLogSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    /** Stable id from program exerciseLibrary (e.g. overhead_press) — used by mobile for exercise detail */
+    slotKey: {
+      type: String,
+      default: '',
+      trim: true,
+    },
     notes: {
       type: String,
       default: '',

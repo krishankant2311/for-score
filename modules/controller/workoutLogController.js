@@ -1,10 +1,65 @@
 const User = require('../model/userModel');
 const WorkoutLog = require('../model/workoutLogModel');
+const Program = require('../model/programModel');
 
 const normalizeDate = (dateStr) => {
   const d = dateStr ? new Date(dateStr) : new Date();
   d.setHours(0, 0, 0, 0);
   return d;
+};
+
+const slugKeyFromName = (name) =>
+  String(name || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_|_$/g, '');
+
+const findSlotKeyInExerciseLibrary = (library, exerciseName) => {
+  const target = String(exerciseName || '').trim().toLowerCase();
+  if (!target || !library || typeof library !== 'object') return '';
+
+  const lists = [];
+  for (const value of Object.values(library)) {
+    if (Array.isArray(value)) lists.push(...value);
+  }
+
+  for (const ex of lists) {
+    if (!ex || typeof ex !== 'object') continue;
+    const name = String(ex.name ?? ex.title ?? '').trim().toLowerCase();
+    if (name !== target) continue;
+    const sk = String(ex.slotKey ?? ex.slug ?? ex.code ?? '').trim();
+    return sk || slugKeyFromName(ex.name || exerciseName);
+  }
+  return '';
+};
+
+const resolveSlotKeyForLog = async (user, exerciseName, storedSlotKey) => {
+  const fromDoc = String(storedSlotKey || '').trim();
+  if (fromDoc) return fromDoc;
+
+  const name = String(exerciseName || '').trim();
+  if (!name) return '';
+
+  if (user?.activeProgramId) {
+    const program = await Program.findById(user.activeProgramId)
+      .select('exerciseLibrary')
+      .lean();
+    const fromLib = findSlotKeyInExerciseLibrary(program?.exerciseLibrary, name);
+    if (fromLib) return fromLib;
+  }
+
+  return slugKeyFromName(name);
+};
+
+const attachSlotKeysToLogs = async (user, logs) => {
+  if (!Array.isArray(logs) || !logs.length) return logs;
+  return Promise.all(
+    logs.map(async (log) => ({
+      ...log,
+      slotKey: await resolveSlotKeyForLog(user, log.exerciseName, log.slotKey),
+    }))
+  );
 };
 
 // 1. Add or update workout log for a single exercise on a given date
@@ -21,7 +76,7 @@ const addOrUpdateWorkoutLog = async (req, res) => {
       });
     }
 
-    const { date, exerciseName, sets, notes } = req.body;
+    const { date, exerciseName, sets, notes, slotKey } = req.body;
     const normalizedDate = normalizeDate(date);
 
     if (!exerciseName) {
@@ -69,6 +124,12 @@ const addOrUpdateWorkoutLog = async (req, res) => {
       });
     }
 
+    const resolvedSlotKey = await resolveSlotKeyForLog(
+      user,
+      exerciseName,
+      slotKey != null ? String(slotKey).trim() : ''
+    );
+
     let log = await WorkoutLog.findOne({
       userId: user_id,
       date: normalizedDate,
@@ -81,19 +142,25 @@ const addOrUpdateWorkoutLog = async (req, res) => {
         userId: user_id,
         date: normalizedDate,
         exerciseName: exerciseName.trim(),
+        slotKey: resolvedSlotKey,
         notes: (notes || '').trim(),
         sets: cleanedSets,
       });
     } else {
       log.sets = cleanedSets;
       if (notes != null) log.notes = (notes || '').trim();
+      if (resolvedSlotKey) log.slotKey = resolvedSlotKey;
       await log.save();
     }
 
+    const result = log.toObject ? log.toObject() : log;
     return res.json({
       success: true,
       message: 'Workout log saved successfully',
-      result: log,
+      result: {
+        ...result,
+        slotKey: result.slotKey || resolvedSlotKey,
+      },
     });
   } catch (err) {
     console.error(err);
@@ -130,10 +197,12 @@ const getWorkoutLogsByDate = async (req, res) => {
       .sort({ exerciseName: 1 })
       .lean();
 
+    const result = await attachSlotKeysToLogs(user, logs);
+
     return res.json({
       success: true,
       message: 'Workout logs fetched successfully',
-      result: logs,
+      result,
     });
   } catch (err) {
     console.error(err);
@@ -241,10 +310,12 @@ const getWorkoutHistoryByExercise = async (req, res) => {
       .limit(limit)
       .lean();
 
+    const result = await attachSlotKeysToLogs(user, logs);
+
     return res.json({
       success: true,
       message: 'Workout history fetched successfully',
-      result: logs,
+      result,
     });
   } catch (err) {
     console.error(err);
@@ -284,10 +355,12 @@ const getWorkoutLogById = async (req, res) => {
       });
     }
 
+    const [enriched] = await attachSlotKeysToLogs(user, [log]);
+
     return res.json({
       success: true,
       message: 'Workout log fetched successfully',
-      result: log,
+      result: enriched || log,
     });
   } catch (err) {
     console.error(err);
