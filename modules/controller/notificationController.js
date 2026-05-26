@@ -330,6 +330,11 @@ const getAllNotificationsAdmin = async (req, res) => {
 
 // ---------------- User ----------------
 
+const userNotificationQuery = (userId) => ({
+  status: 'Sent',
+  $or: [{ target: 'All' }, { target: 'Users', userIds: userId }],
+});
+
 // GET /api/user/notifications
 const getNotificationsForUser = async (req, res) => {
   try {
@@ -345,10 +350,7 @@ const getNotificationsForUser = async (req, res) => {
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
     const skip = (page - 1) * limit;
 
-    const query = {
-      status: 'Sent',
-      $or: [{ target: 'All' }, { target: 'Users', userIds: user._id }],
-    };
+    const query = userNotificationQuery(user._id);
 
     const [items, total] = await Promise.all([
       Notification.find(query)
@@ -378,6 +380,64 @@ const getNotificationsForUser = async (req, res) => {
       success: true,
       message: 'Notifications fetched successfully',
       result: { items: resultItems, total, page, limit, totalPages: Math.ceil(total / limit) },
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: err.message,
+    });
+  }
+};
+
+// POST /api/user/notifications/read-all
+const markAllNotificationsRead = async (req, res) => {
+  try {
+    const user = await getValidUser(req.token);
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: 'User not found or inactive',
+      });
+    }
+
+    const notifications = await Notification.find(userNotificationQuery(user._id))
+      .select('_id')
+      .lean();
+
+    if (!notifications.length) {
+      return res.json({
+        success: true,
+        message: 'No notifications to mark as read',
+        result: { markedCount: 0, alreadyReadCount: 0, total: 0 },
+      });
+    }
+
+    const notificationIds = notifications.map((n) => n._id);
+    const now = new Date();
+
+    const bulkResult = await NotificationRead.bulkWrite(
+      notificationIds.map((notificationId) => ({
+        updateOne: {
+          filter: { userId: user._id, notificationId },
+          update: { $setOnInsert: { readAt: now } },
+          upsert: true,
+        },
+      })),
+      { ordered: false }
+    );
+
+    const markedCount = bulkResult.upsertedCount || 0;
+
+    return res.json({
+      success: true,
+      message: 'All notifications marked as read',
+      result: {
+        markedCount,
+        alreadyReadCount: notificationIds.length - markedCount,
+        total: notificationIds.length,
+      },
     });
   } catch (err) {
     console.error(err);
@@ -446,6 +506,7 @@ module.exports = {
   sendNotificationByAdmin,
   getAllNotificationsAdmin,
   getNotificationsForUser,
+  markAllNotificationsRead,
   markNotificationRead,
 };
 

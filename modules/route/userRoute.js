@@ -130,6 +130,7 @@ const {
 } = require('../controller/faqController');
 const {
   getNotificationsForUser,
+  markAllNotificationsRead,
   markNotificationRead,
 } = require('../controller/notificationController');
 const {
@@ -237,6 +238,7 @@ router.get('/faq/:id', upload.none(), verifyAccessToken, getFaqByIdForUser);
 
 // Notifications (User)
 router.get('/notifications', upload.none(), verifyAccessToken, getNotificationsForUser);
+router.post('/notifications/read-all', upload.none(), verifyAccessToken, markAllNotificationsRead);
 router.post('/notifications/:id/read', upload.none(), verifyAccessToken, markNotificationRead);
 
 // Recovery Content (User read-only)
