@@ -26,6 +26,21 @@ const sleepLogSchema = new mongoose.Schema(
       type: Number,
       required: true,
     },
+    deepSleepMinutes: {
+      type: Number,
+      default: null,
+      min: 0,
+    },
+    remSleepMinutes: {
+      type: Number,
+      default: null,
+      min: 0,
+    },
+    lightSleepMinutes: {
+      type: Number,
+      default: null,
+      min: 0,
+    },
     quality: {
       type: String,
       enum: ['Poor', 'Fair', 'Good', 'Excellent'],

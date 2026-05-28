@@ -7,6 +7,13 @@ const normalizeDate = (dateStr) => {
   return d;
 };
 
+const toOptionalMinutes = (val) => {
+  if (val === '' || val == null) return null;
+  const n = Number(val);
+  if (!Number.isFinite(n) || n < 0) return NaN;
+  return Math.round(n);
+};
+
 // 1. Add or update sleep log for a given date
 const addOrUpdateSleepLog = async (req, res) => {
   try {
@@ -21,7 +28,16 @@ const addOrUpdateSleepLog = async (req, res) => {
       });
     }
 
-    const { date, startTime, endTime, totalHours, quality } = req.body;
+    const {
+      date,
+      startTime,
+      endTime,
+      totalHours,
+      quality,
+      deepSleepMinutes,
+      remSleepMinutes,
+      lightSleepMinutes,
+    } = req.body;
     const normalizedDate = normalizeDate(date);
 
     if (!totalHours) {
@@ -45,6 +61,20 @@ const addOrUpdateSleepLog = async (req, res) => {
       qualityVal = 'Good';
     }
 
+    const deepMinutes = toOptionalMinutes(deepSleepMinutes);
+    const remMinutes = toOptionalMinutes(remSleepMinutes);
+    const lightMinutes = toOptionalMinutes(lightSleepMinutes);
+    if (
+      Number.isNaN(deepMinutes) ||
+      Number.isNaN(remMinutes) ||
+      Number.isNaN(lightMinutes)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'deepSleepMinutes, remSleepMinutes and lightSleepMinutes must be valid non-negative numbers',
+      });
+    }
+
     let log = await SleepLog.findOne({
       userId: user_id,
       date: normalizedDate,
@@ -58,12 +88,18 @@ const addOrUpdateSleepLog = async (req, res) => {
         startTime: startTime || '',
         endTime: endTime || '',
         totalHours: hoursNum,
+        deepSleepMinutes: deepMinutes,
+        remSleepMinutes: remMinutes,
+        lightSleepMinutes: lightMinutes,
         quality: qualityVal,
       });
     } else {
       if (startTime != null) log.startTime = startTime;
       if (endTime != null) log.endTime = endTime;
       log.totalHours = hoursNum;
+      if (deepMinutes !== null) log.deepSleepMinutes = deepMinutes;
+      if (remMinutes !== null) log.remSleepMinutes = remMinutes;
+      if (lightMinutes !== null) log.lightSleepMinutes = lightMinutes;
       log.quality = qualityVal;
       await log.save();
     }

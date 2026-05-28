@@ -156,6 +156,10 @@ const {
   upsertWaterLog,
 } = require('../controller/waterLogController');
 const {
+  getRecoverPageData,
+  getSleepTrackingPageData,
+} = require('../controller/recoveryDashboardController');
+const {
   upsertBodyWeightLog,
   getBodyWeightForDate,
   getLatestBodyWeight,
@@ -355,5 +359,9 @@ router.post('/goals/:id/delete', upload.none(), verifyAccessToken, deleteGoal);
 router.get('/water', upload.none(), verifyAccessToken, getWaterForDate);
 router.get('/water/today', upload.none(), verifyAccessToken, getWaterForDate);
 router.post('/water', upload.none(), verifyAccessToken, upsertWaterLog);
+
+// Recovery / Sleep page-ready APIs (mobile)
+router.get('/recovery/page', upload.none(), verifyAccessToken, getRecoverPageData);
+router.get('/sleep-tracking/page', upload.none(), verifyAccessToken, getSleepTrackingPageData);
 
 module.exports = router;
