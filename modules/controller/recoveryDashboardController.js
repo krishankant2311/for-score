@@ -158,6 +158,44 @@ const buildSleepSummary = (logs) => {
   };
 };
 
+const buildWeeklyPhaseDistribution = (logs) => {
+  const totals = logs.reduce(
+    (acc, item) => {
+      const itemDistribution = buildSleepPhaseDistribution(item);
+      acc.totalMinutes += Number(itemDistribution.totalMinutes || 0);
+      acc.deepMinutes += Number(itemDistribution.phases?.deep?.minutes || 0);
+      acc.remMinutes += Number(itemDistribution.phases?.rem?.minutes || 0);
+      acc.lightMinutes += Number(itemDistribution.phases?.light?.minutes || 0);
+      return acc;
+    },
+    { totalMinutes: 0, deepMinutes: 0, remMinutes: 0, lightMinutes: 0 }
+  );
+
+  if (totals.totalMinutes <= 0) {
+    return {
+      totalMinutes: 0,
+      phases: {
+        deep: { minutes: 0, percent: 0 },
+        rem: { minutes: 0, percent: 0 },
+        light: { minutes: 0, percent: 0 },
+      },
+    };
+  }
+
+  const deepPercent = Math.round((totals.deepMinutes / totals.totalMinutes) * 100);
+  const remPercent = Math.round((totals.remMinutes / totals.totalMinutes) * 100);
+  const lightPercent = Math.max(0, 100 - deepPercent - remPercent);
+
+  return {
+    totalMinutes: totals.totalMinutes,
+    phases: {
+      deep: { minutes: totals.deepMinutes, percent: deepPercent },
+      rem: { minutes: totals.remMinutes, percent: remPercent },
+      light: { minutes: totals.lightMinutes, percent: lightPercent },
+    },
+  };
+};
+
 const buildWellnessCards = ({ sleepHours, sleepTargetHours, hydrationPercent }) => {
   const sleepPercent = safePercent(sleepHours, sleepTargetHours);
   const stressLevel = sleepPercent >= 100 ? 'Low' : sleepPercent >= 80 ? 'Moderate' : 'High';
@@ -243,13 +281,21 @@ const getRecoverPageData = async (req, res) => {
             qualitySummary: sleepSummary.qualitySummary,
             targetHours: 8,
           },
-          weekly: weeklySleepLogs.map((item) => ({
-            date: item.date,
-            day: new Date(item.date).toLocaleDateString('en-US', { weekday: 'short' }),
-            totalHours: Number(item.totalHours || 0),
-            totalHoursLabel: toHoursLabel(item.totalHours),
-            quality: item.quality || 'Good',
-          })),
+          weekly: {
+            average: {
+              avgHours: sleepSummary.avgHours,
+              avgHoursLabel: sleepSummary.avgHoursLabel,
+            },
+            phaseDistribution: buildWeeklyPhaseDistribution(weeklySleepLogs),
+            days: weeklySleepLogs.map((item) => ({
+              date: item.date,
+              day: new Date(item.date).toLocaleDateString('en-US', { weekday: 'short' }),
+              totalHours: Number(item.totalHours || 0),
+              totalHoursLabel: toHoursLabel(item.totalHours),
+              quality: item.quality || 'Good',
+              phaseDistribution: buildSleepPhaseDistribution(item),
+            })),
+          },
         },
         hydration,
         wellness: {
