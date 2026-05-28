@@ -41,6 +41,11 @@ const sleepLogSchema = new mongoose.Schema(
       default: null,
       min: 0,
     },
+    phaseSplitType: {
+      type: String,
+      enum: ['auto', 'manual'],
+      default: 'auto',
+    },
     quality: {
       type: String,
       enum: ['Poor', 'Fair', 'Good', 'Excellent'],

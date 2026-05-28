@@ -14,6 +14,14 @@ const toOptionalMinutes = (val) => {
   return Math.round(n);
 };
 
+const buildAutoPhaseSplit = (hoursNum) => {
+  const totalMinutes = Math.max(0, Math.round(Number(hoursNum || 0) * 60));
+  const deep = Math.round(totalMinutes * 0.3);
+  const rem = Math.round(totalMinutes * 0.2);
+  const light = Math.max(0, totalMinutes - deep - rem);
+  return { deep, rem, light };
+};
+
 // 1. Add or update sleep log for a given date
 const addOrUpdateSleepLog = async (req, res) => {
   try {
@@ -61,19 +69,29 @@ const addOrUpdateSleepLog = async (req, res) => {
       qualityVal = 'Good';
     }
 
-    const deepMinutes = toOptionalMinutes(deepSleepMinutes);
-    const remMinutes = toOptionalMinutes(remSleepMinutes);
-    const lightMinutes = toOptionalMinutes(lightSleepMinutes);
+    const deepMinutesInput = toOptionalMinutes(deepSleepMinutes);
+    const remMinutesInput = toOptionalMinutes(remSleepMinutes);
+    const lightMinutesInput = toOptionalMinutes(lightSleepMinutes);
     if (
-      Number.isNaN(deepMinutes) ||
-      Number.isNaN(remMinutes) ||
-      Number.isNaN(lightMinutes)
+      Number.isNaN(deepMinutesInput) ||
+      Number.isNaN(remMinutesInput) ||
+      Number.isNaN(lightMinutesInput)
     ) {
       return res.status(400).json({
         success: false,
         message: 'deepSleepMinutes, remSleepMinutes and lightSleepMinutes must be valid non-negative numbers',
       });
     }
+
+    const isManualSplit =
+      deepMinutesInput !== null &&
+      remMinutesInput !== null &&
+      lightMinutesInput !== null;
+    const autoSplit = buildAutoPhaseSplit(hoursNum);
+    const deepMinutes = isManualSplit ? deepMinutesInput : autoSplit.deep;
+    const remMinutes = isManualSplit ? remMinutesInput : autoSplit.rem;
+    const lightMinutes = isManualSplit ? lightMinutesInput : autoSplit.light;
+    const phaseSplitType = isManualSplit ? 'manual' : 'auto';
 
     let log = await SleepLog.findOne({
       userId: user_id,
@@ -91,15 +109,17 @@ const addOrUpdateSleepLog = async (req, res) => {
         deepSleepMinutes: deepMinutes,
         remSleepMinutes: remMinutes,
         lightSleepMinutes: lightMinutes,
+        phaseSplitType,
         quality: qualityVal,
       });
     } else {
       if (startTime != null) log.startTime = startTime;
       if (endTime != null) log.endTime = endTime;
       log.totalHours = hoursNum;
-      if (deepMinutes !== null) log.deepSleepMinutes = deepMinutes;
-      if (remMinutes !== null) log.remSleepMinutes = remMinutes;
-      if (lightMinutes !== null) log.lightSleepMinutes = lightMinutes;
+      log.deepSleepMinutes = deepMinutes;
+      log.remSleepMinutes = remMinutes;
+      log.lightSleepMinutes = lightMinutes;
+      log.phaseSplitType = phaseSplitType;
       log.quality = qualityVal;
       await log.save();
     }

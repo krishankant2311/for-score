@@ -45,6 +45,7 @@ const buildSleepPhaseDistribution = (log) => {
   }
 
   const fallbackTotalMinutes = Math.max(0, Math.round(Number(log.totalHours || 0) * 60));
+  const isAutoSplit = String(log.phaseSplitType || '').toLowerCase() === 'auto';
   const deepRaw = Number(log.deepSleepMinutes);
   const remRaw = Number(log.remSleepMinutes);
   const lightRaw = Number(log.lightSleepMinutes);
@@ -79,6 +80,17 @@ const buildSleepPhaseDistribution = (log) => {
         deep: { minutes: 0, percent: 0 },
         rem: { minutes: 0, percent: 0 },
         light: { minutes: 0, percent: 0 },
+      },
+    };
+  }
+
+  if (isAutoSplit) {
+    return {
+      totalMinutes,
+      phases: {
+        deep: { minutes: deepMinutes, percent: 30 },
+        rem: { minutes: remMinutes, percent: 20 },
+        light: { minutes: lightMinutes, percent: 50 },
       },
     };
   }
