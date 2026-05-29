@@ -164,6 +164,7 @@ const {
   getStretchProgramByIdForUser,
   logStretchSession,
 } = require('../controller/stretchProgramsController');
+const { getOvalOfficePage } = require('../controller/ovalOfficeController');
 const {
   upsertBodyWeightLog,
   getBodyWeightForDate,
@@ -368,6 +369,10 @@ router.post('/water', upload.none(), verifyAccessToken, upsertWaterLog);
 // Recovery / Sleep page-ready APIs (mobile)
 router.get('/recovery/page', upload.none(), verifyAccessToken, getRecoverPageData);
 router.get('/sleep-tracking/page', upload.none(), verifyAccessToken, getSleepTrackingPageData);
+
+// The Oval Office — account stats (workouts, streak, FOUR score)
+router.get('/oval-office/page', upload.none(), verifyAccessToken, getOvalOfficePage);
+router.get('/account/page', upload.none(), verifyAccessToken, getOvalOfficePage);
 
 // Stretch Programs page (mobile)
 router.get('/stretch-programs/page', upload.none(), verifyAccessToken, getStretchProgramsPage);
