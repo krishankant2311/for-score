@@ -160,6 +160,11 @@ const {
   getSleepTrackingPageData,
 } = require('../controller/recoveryDashboardController');
 const {
+  getStretchProgramsPage,
+  getStretchProgramByIdForUser,
+  logStretchSession,
+} = require('../controller/stretchProgramsController');
+const {
   upsertBodyWeightLog,
   getBodyWeightForDate,
   getLatestBodyWeight,
@@ -363,5 +368,10 @@ router.post('/water', upload.none(), verifyAccessToken, upsertWaterLog);
 // Recovery / Sleep page-ready APIs (mobile)
 router.get('/recovery/page', upload.none(), verifyAccessToken, getRecoverPageData);
 router.get('/sleep-tracking/page', upload.none(), verifyAccessToken, getSleepTrackingPageData);
+
+// Stretch Programs page (mobile)
+router.get('/stretch-programs/page', upload.none(), verifyAccessToken, getStretchProgramsPage);
+router.get('/stretch-programs/:id', upload.none(), verifyAccessToken, getStretchProgramByIdForUser);
+router.post('/stretch-sessions', upload.none(), verifyAccessToken, logStretchSession);
 
 module.exports = router;
