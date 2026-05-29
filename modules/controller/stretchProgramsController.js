@@ -1,46 +1,7 @@
 const User = require('../model/userModel');
-const StretchProgram = require('../model/stretchProgramModel');
+const Program = require('../model/programModel');
 const StretchSessionLog = require('../model/stretchSessionLogModel');
 const { toPublicFileUrl } = require('../../utils/publicFileUrl');
-
-const DEFAULT_PROGRAMS = [
-  {
-    title: 'Morning Full Body Stretch',
-    description: 'Wake up your muscles with gentle full-body stretches',
-    level: 'Beginner',
-    durationMinutes: 5,
-    stretchCount: 8,
-    iconKey: 'morning_full_body',
-    sortOrder: 1,
-  },
-  {
-    title: 'Post-Workout Recovery',
-    description: 'Cool down and prevent soreness after training',
-    level: 'Intermediate',
-    durationMinutes: 8,
-    stretchCount: 8,
-    iconKey: 'post_workout',
-    sortOrder: 2,
-  },
-  {
-    title: 'Evening Relaxation',
-    description: 'Wind down before bed with calming stretches',
-    level: 'All Levels',
-    durationMinutes: 10,
-    stretchCount: 10,
-    iconKey: 'evening_relaxation',
-    sortOrder: 3,
-  },
-  {
-    title: 'Lower Body Focus',
-    description: 'Target hips, hamstrings, and calves',
-    level: 'Intermediate',
-    durationMinutes: 7,
-    stretchCount: 7,
-    iconKey: 'lower_body',
-    sortOrder: 4,
-  },
-];
 
 const STRETCHING_TIPS = [
   'Never bounce - use slow, controlled movements',
@@ -56,18 +17,114 @@ const normalizeDate = (dateInput) => {
   return d;
 };
 
-const buildProgramCard = (req, program) => ({
-  _id: program._id || null,
-  title: program.title,
-  description: program.description,
-  level: program.level,
-  durationMinutes: Number(program.durationMinutes),
-  durationLabel: `${Number(program.durationMinutes)} mins`,
-  stretchCount: Number(program.stretchCount),
-  stretchesLabel: `${Number(program.stretchCount)} stretches`,
-  iconKey: program.iconKey || 'stretch_default',
-  mediaUrl: program.mediaPath ? toPublicFileUrl(req, program.mediaPath) : '',
-});
+const slugIconKey = (title) =>
+  String(title || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_|_$/g, '') || 'stretch_default';
+
+const mapSkillLevel = (raw) => {
+  const s = String(raw || '').toLowerCase();
+  if (s.includes('begin')) return 'Beginner';
+  if (s.includes('inter') || s.includes('adv')) return 'Intermediate';
+  return 'All Levels';
+};
+
+/** Recovery-day stretches from fitness program (recoveryProtocol + legacy recovery). */
+const extractStretchesFromFitnessProgram = (program) => {
+  const protocol =
+    program?.recoveryProtocol && typeof program.recoveryProtocol === 'object'
+      ? program.recoveryProtocol
+      : null;
+  const legacyRecovery =
+    program?.recovery && typeof program.recovery === 'object' ? program.recovery : null;
+
+  const rawLists = [
+    Array.isArray(protocol?.stretches) ? protocol.stretches : [],
+    Array.isArray(legacyRecovery?.stretches) ? legacyRecovery.stretches : [],
+  ];
+
+  const seen = new Set();
+  const stretches = [];
+  for (const list of rawLists) {
+    for (const item of list) {
+      const name = String(item?.name ?? '').trim();
+      if (!name) continue;
+      const key = name.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      stretches.push({
+        name,
+        detail: String(item?.detail ?? '').trim(),
+      });
+    }
+  }
+  return stretches;
+};
+
+const estimateDurationMinutes = (program, stretchCount) => {
+  const protocol =
+    program?.recoveryProtocol && typeof program.recoveryProtocol === 'object'
+      ? program.recoveryProtocol
+      : null;
+  const cardio = protocol?.cardio && typeof protocol.cardio === 'object' ? protocol.cardio : null;
+  const cardioMinutes = Number(
+    cardio?.durationMinutes ?? cardio?.duration_minutes ?? program?.recovery?.lissMinutes ?? 0
+  );
+  const stretchBlockMinutes = stretchCount > 0 ? Math.max(5, stretchCount * 2) : 0;
+  const total = (Number.isFinite(cardioMinutes) ? cardioMinutes : 0) + stretchBlockMinutes;
+  if (total > 0) return Math.round(total);
+  const avg = Number(program?.avgSessionMinutes || 0);
+  if (avg > 0) return Math.round(avg * 0.35);
+  return stretchCount > 0 ? Math.max(5, stretchCount * 2) : 5;
+};
+
+const mapFitnessProgramToStretchProgram = (program) => {
+  const stretches = extractStretchesFromFitnessProgram(program);
+  const durationMinutes = estimateDurationMinutes(program, stretches.length);
+  const description =
+    String(program.subHeader || '').trim() ||
+    String(program.overview || '').trim() ||
+    'Recovery day stretching from your fitness program';
+
+  return {
+    _id: program._id,
+    fitnessProgramId: String(program._id),
+    source: 'fitness_program',
+    title: program.programName || 'Stretch Program',
+    description,
+    level: mapSkillLevel(program.workoutSkillLevel),
+    durationMinutes,
+    stretchCount: stretches.length,
+    iconKey: slugIconKey(program.programName),
+    mediaPath: program.thumbnail_url || program.videoPath || '',
+    programCode: program.programCode || '',
+    stretches,
+  };
+};
+
+const buildProgramCard = (req, program, { includeStretches = false } = {}) => {
+  const card = {
+    _id: program._id ? String(program._id) : null,
+    fitnessProgramId: program.fitnessProgramId || (program._id ? String(program._id) : null),
+    source: program.source || 'fitness_program',
+    title: program.title,
+    description: program.description,
+    level: program.level,
+    durationMinutes: Number(program.durationMinutes),
+    durationLabel: `${Number(program.durationMinutes)} mins`,
+    stretchCount: Number(program.stretchCount),
+    stretchesLabel: `${Number(program.stretchCount)} stretches`,
+    iconKey: program.iconKey || 'stretch_default',
+    mediaUrl: program.mediaPath ? toPublicFileUrl(req, program.mediaPath) : '',
+    programCode: program.programCode || '',
+  };
+  if (includeStretches && Array.isArray(program.stretches)) {
+    card.stretches = program.stretches;
+  }
+  return card;
+};
 
 const computeDayStreak = (sessionDates) => {
   if (!sessionDates.length) return 0;
@@ -110,12 +167,26 @@ const buildUserProgress = async (userId) => {
   };
 };
 
-const loadActivePrograms = async () => {
-  const programs = await StretchProgram.find({ status: 'Active' })
-    .sort({ sortOrder: 1, createdAt: 1 })
+const fitnessProgramFilter = () => ({
+  status: 'Active',
+  isDeleted: { $ne: true },
+});
+
+const loadStretchProgramsFromFitness = async () => {
+  const programs = await Program.find(fitnessProgramFilter())
+    .sort({ programName: 1, createdAt: 1 })
     .lean();
-  if (programs.length) return programs;
-  return DEFAULT_PROGRAMS;
+
+  return programs.map(mapFitnessProgramToStretchProgram);
+};
+
+const findProgramById = async (programId) => {
+  const fitness = await Program.findOne({
+    ...fitnessProgramFilter(),
+    _id: programId,
+  }).lean();
+  if (!fitness) return null;
+  return mapFitnessProgramToStretchProgram(fitness);
 };
 
 // GET /api/user/stretch-programs/page
@@ -128,9 +199,14 @@ const getStretchProgramsPage = async (req, res) => {
     }
 
     const [programs, progress] = await Promise.all([
-      loadActivePrograms(),
+      loadStretchProgramsFromFitness(),
       buildUserProgress(user._id),
     ]);
+
+    const withStretches = programs.filter((p) => p.stretchCount > 0);
+    const availablePrograms = (withStretches.length ? withStretches : programs).map((p) =>
+      buildProgramCard(req, p)
+    );
 
     return res.json({
       success: true,
@@ -141,7 +217,7 @@ const getStretchProgramsPage = async (req, res) => {
           subtitle: 'Choose a flexibility routine',
         },
         yourProgress: progress,
-        availablePrograms: programs.map((p) => buildProgramCard(req, p)),
+        availablePrograms,
         stretchingTips: STRETCHING_TIPS.map((text, index) => ({
           order: index + 1,
           text,
@@ -158,7 +234,7 @@ const getStretchProgramsPage = async (req, res) => {
   }
 };
 
-// GET /api/user/stretch-programs/:id
+// GET /api/user/stretch-programs/:id  (id = fitness program _id)
 const getStretchProgramByIdForUser = async (req, res) => {
   try {
     const userId = req.token?._id;
@@ -167,11 +243,7 @@ const getStretchProgramByIdForUser = async (req, res) => {
       return res.status(400).json({ success: false, message: 'User not found' });
     }
 
-    const program = await StretchProgram.findOne({
-      _id: req.params.id,
-      status: 'Active',
-    }).lean();
-
+    const program = await findProgramById(req.params.id);
     if (!program) {
       return res.status(404).json({
         success: false,
@@ -182,7 +254,7 @@ const getStretchProgramByIdForUser = async (req, res) => {
     return res.json({
       success: true,
       message: 'Stretch program fetched successfully',
-      result: buildProgramCard(req, program),
+      result: buildProgramCard(req, program, { includeStretches: true }),
     });
   } catch (err) {
     console.error(err);
@@ -195,7 +267,7 @@ const getStretchProgramByIdForUser = async (req, res) => {
 };
 
 // POST /api/user/stretch-sessions
-// Body: { programId?, date?, durationMinutes }
+// Body: { programId?, date?, durationMinutes }  — programId = fitness program _id
 const logStretchSession = async (req, res) => {
   try {
     const userId = req.token?._id;
@@ -211,13 +283,17 @@ const logStretchSession = async (req, res) => {
     }
 
     let minutes = Number(durationMinutes);
-    if (!Number.isFinite(minutes) || minutes <= 0) {
-      if (programId) {
-        const program = await StretchProgram.findOne({
-          _id: programId,
-          status: 'Active',
-        }).lean();
-        if (program) minutes = Number(program.durationMinutes);
+    let program = null;
+    if (programId) {
+      program = await findProgramById(programId);
+      if (!program) {
+        return res.status(404).json({
+          success: false,
+          message: 'Stretch program not found',
+        });
+      }
+      if (!Number.isFinite(minutes) || minutes <= 0) {
+        minutes = Number(program.durationMinutes);
       }
     }
     if (!Number.isFinite(minutes) || minutes <= 0) {
@@ -225,19 +301,6 @@ const logStretchSession = async (req, res) => {
         success: false,
         message: 'durationMinutes is required (or provide a valid programId)',
       });
-    }
-
-    if (programId) {
-      const program = await StretchProgram.findOne({
-        _id: programId,
-        status: 'Active',
-      }).lean();
-      if (!program) {
-        return res.status(404).json({
-          success: false,
-          message: 'Stretch program not found',
-        });
-      }
     }
 
     const session = await StretchSessionLog.create({
@@ -271,5 +334,6 @@ module.exports = {
   getStretchProgramsPage,
   getStretchProgramByIdForUser,
   logStretchSession,
-  DEFAULT_PROGRAMS,
+  extractStretchesFromFitnessProgram,
+  mapFitnessProgramToStretchProgram,
 };
