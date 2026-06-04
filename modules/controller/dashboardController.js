@@ -311,8 +311,8 @@ const getAdminDashboard = async (req, res) => {
     });
 
     // ---------- Donuts ----------
+    // Current account status for all users (not signups-in-range — matches GET /get-user-stats).
     const userStatus = await User.aggregate([
-      ...(from && to ? [{ $match: dateMatch('createdAt', from, to) }] : []),
       { $group: { _id: { $ifNull: ['$status', 'Active'] }, value: { $sum: 1 } } },
       { $project: { _id: 0, label: '$_id', value: 1 } },
       { $sort: { label: 1 } },

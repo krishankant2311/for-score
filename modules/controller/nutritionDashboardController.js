@@ -9,6 +9,7 @@ const {
   buildScheduledMealSlots,
   countCompletedScheduledSlots,
 } = require('../../utils/mealLogHelpers');
+const { getDailyCalorieTargetDetails } = require('../../utils/calorieTargetHelpers');
 
 const normalizeDate = (dateStr) => {
   const d = dateStr ? new Date(dateStr) : new Date();
@@ -265,7 +266,8 @@ const roundMacro = (n) => Math.round(Number(n) || 0);
 const buildDailyNutritionPayload = (user, logs, normalizedDate) => {
   const macros = aggregateDailyMacros(logs);
 
-  const calorieTarget = 2200 + (user.calorieAdjustment || 0);
+  const calorieDetails = getDailyCalorieTargetDetails(user);
+  const calorieTarget = calorieDetails.target;
   const proteinTarget = 150;
   const carbsTarget = 250;
   const fatsTarget = 70;
@@ -291,6 +293,9 @@ const buildDailyNutritionPayload = (user, logs, normalizedDate) => {
       target: targetCalories,
       remaining: remainingCalories,
       percent: safePercent(currentCalories, targetCalories),
+      maintenance: calorieDetails.maintenanceCalories,
+      adjustment: calorieDetails.calorieAdjustment,
+      calculatedFromProfile: calorieDetails.calculatedFromProfile,
     },
     macros: {
       protein: macroBlock(macros.protein, proteinTarget),

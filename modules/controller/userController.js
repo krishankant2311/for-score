@@ -87,6 +87,8 @@ const buildSignupProfileUpdate = (body) => {
     const goalVal = String(fitnessGoal).toLowerCase();
     if (allowedGoals.includes(goalVal)) {
       profileUpdate.weeklyWeightGoal = goalVal;
+      const calorieMap = { lose_1: -500, lose_0_5: -250, maintain: 0, gain_0_5: 250, gain_1: 500 };
+      profileUpdate.calorieAdjustment = calorieMap[goalVal];
     }
   }
 

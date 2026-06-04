@@ -238,7 +238,8 @@ const sendNotificationByAdmin = async (req, res) => {
       await pruneInvalidSubscriptionIds(allMongoUserIds, invalidIds);
     }
 
-    const deliveryError = getOneSignalDeliveryError(onesignalResp);
+    const deliveryOk = isOneSignalDeliveryOk(onesignalResp);
+    const deliveryError = deliveryOk ? null : getOneSignalDeliveryError(onesignalResp);
     const targetUserIds = toAll ? [] : dedupeMongoUserIds(allMongoUserIds);
     const invalidSet = new Set(invalidIds.map(String));
     const sentPlayerIds = toAll ? [] : ids.filter((id) => !invalidSet.has(String(id)));
@@ -251,16 +252,16 @@ const sendNotificationByAdmin = async (req, res) => {
       userIds: targetUserIds,
       onesignal: {
         notificationId: onesignalResp?.id || '',
-        playerIds: toAll ? [] : isOneSignalDeliveryOk(onesignalResp) ? sentPlayerIds : ids,
+        playerIds: toAll ? [] : deliveryOk ? sentPlayerIds : ids,
         deliveryMethod: onesignalResp?._deliveryMethod || '',
         raw: onesignalResp || {},
       },
-      status: deliveryError ? 'Failed' : 'Sent',
+      status: deliveryOk ? 'Sent' : 'Failed',
       error: deliveryError || '',
       createdByAdminId: admin._id,
     });
 
-    if (deliveryError) {
+    if (!deliveryOk) {
       return res.status(502).json({
         success: false,
         message: 'Push notification was not delivered by OneSignal',

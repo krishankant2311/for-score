@@ -24,6 +24,7 @@ const {
 } = require('./todayWorkoutController');
 const { buildGoalView } = require('./userGoalController');
 const { buildWaterView } = require('./waterLogController');
+const { getDailyCalorieTarget } = require('../../utils/calorieTargetHelpers');
 const {
   SCHEDULED_MEAL_TYPES,
   enrichMealLogForResponse,
@@ -229,8 +230,7 @@ const buildTodayDietCard = async (user, refDate) => {
 
   const macros = sumMealMacros(logs);
 
-  // Per-user targets. Macros default to a balanced split if not personalized.
-  const calorieTarget = 2200 + Number(user.calorieAdjustment || 0);
+  const calorieTarget = getDailyCalorieTarget(user);
   const proteinTarget = 180;
   const carbsTarget = 220;
   const fatsTarget = 65;

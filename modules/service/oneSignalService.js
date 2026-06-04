@@ -74,13 +74,12 @@ const collectInvalidIds = (errors) => {
   return [];
 };
 
-/** True when OneSignal accepted the notification (has id, no invalid recipients). */
+/** True when OneSignal accepted the notification (created id or positive recipient count). */
 const isOneSignalDeliveryOk = (resp) => {
   if (!resp || typeof resp !== 'object') return false;
-  if (resp.id) {
-    const invalid = collectInvalidIds(resp.errors);
-    return invalid.length === 0;
-  }
+  if (resp.id) return true;
+  const recipients = Number(resp.recipients);
+  if (Number.isFinite(recipients) && recipients > 0) return true;
   return false;
 };
 
@@ -145,44 +144,15 @@ const sendOneSignalNotification = async ({
     throw err;
   }
 
-  // SDK 5+ → subscription id; older SDK → player id. Try both if first fails.
-  const attempts = [
-    {
-      method: 'include_subscription_ids',
-      body: {
-        ...buildBasePayload({ appId, title, message, data }),
-        include_subscription_ids: recipientIds,
-      },
-    },
-    {
-      method: 'include_player_ids',
-      body: {
-        app_id: appId,
-        headings: { en: title },
-        contents: { en: message },
-        data: data || {},
-        include_player_ids: recipientIds,
-      },
-    },
-  ];
-
+  // Subscription ids only — avoid a second include_player_ids call (duplicate pushes on device).
   const tryDelivery = async (idsToTry) => {
-    let lastResp = null;
-    for (const attempt of attempts) {
-      const body = { ...attempt.body };
-      if (attempt.method === 'include_subscription_ids') {
-        body.include_subscription_ids = idsToTry;
-      } else {
-        body.include_player_ids = idsToTry;
-      }
-      const resp = await postJson(ONESIGNAL_API_PATH, body, authHeaders);
-      resp._deliveryMethod = attempt.method;
-      lastResp = resp;
-      if (isOneSignalDeliveryOk(resp)) {
-        return resp;
-      }
-    }
-    return lastResp;
+    const body = {
+      ...buildBasePayload({ appId, title, message, data }),
+      include_subscription_ids: idsToTry,
+    };
+    const resp = await postJson(ONESIGNAL_API_PATH, body, authHeaders);
+    resp._deliveryMethod = 'include_subscription_ids';
+    return resp;
   };
 
   let idsToSend = [...recipientIds];
