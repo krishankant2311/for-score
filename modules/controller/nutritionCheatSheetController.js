@@ -1,8 +1,21 @@
+const mongoose = require('mongoose');
 const { Admin } = require('../model/adminModel');
 const User = require('../model/userModel');
 const NutritionCheatSheet = require('../model/nutritionCheatSheetModel');
 
 const MACRO_TYPES_LIST = NutritionCheatSheet.MACRO_TYPES;
+const MACRO_GRAMS_MAX = 999;
+const CALORIES_MAX = 9999;
+
+const validateMacroAndCalories = (grams, cal) => {
+  if (Number.isNaN(grams) || grams < 0 || grams > MACRO_GRAMS_MAX) {
+    return `macroAmountGrams must be between 0 and ${MACRO_GRAMS_MAX}`;
+  }
+  if (Number.isNaN(cal) || cal < 0 || cal > CALORIES_MAX) {
+    return `calories must be between 0 and ${CALORIES_MAX}`;
+  }
+  return null;
+};
 
 const SECTION_BY_MACRO = {
   protein: 'Protein Sources',
@@ -53,10 +66,11 @@ const addNutritionCheatSheetItem = async (req, res) => {
 
     const grams = Number(macroAmountGrams);
     const cal = Number(calories);
-    if (Number.isNaN(grams) || Number.isNaN(cal)) {
+    const rangeError = validateMacroAndCalories(grams, cal);
+    if (rangeError) {
       return res.status(400).json({
         success: false,
-        message: 'macroAmountGrams and calories must be valid numbers',
+        message: rangeError,
       });
     }
 
@@ -222,32 +236,38 @@ const updateNutritionCheatSheetItem = async (req, res) => {
       });
     }
 
-    if (name != null && String(name).trim() !== '') item.name = String(name).trim();
-    if (servingSize != null && String(servingSize).trim() !== '') item.servingSize = String(servingSize).trim();
-    if (macroType != null && String(macroType).trim() !== '') {
-      const mt = String(macroType).toLowerCase();
-      if (!MACRO_TYPES_LIST.includes(mt)) {
-        return res.status(400).json({
-          success: false,
-          message: 'macroType must be protein, carb or fat',
-        });
-      }
-      item.macroType = mt;
+    const trimmedName = name != null ? String(name).trim() : '';
+    const trimmedServing = servingSize != null ? String(servingSize).trim() : '';
+    if (!trimmedName || !trimmedServing || macroAmountGrams == null || macroAmountGrams === '' || calories == null || calories === '') {
+      return res.status(400).json({
+        success: false,
+        message: 'name, servingSize, macroAmountGrams and calories are required',
+      });
     }
-    if (macroAmountGrams != null && macroAmountGrams !== '') {
-      const g = Number(macroAmountGrams);
-      if (Number.isNaN(g)) {
-        return res.status(400).json({ success: false, message: 'macroAmountGrams must be a number' });
-      }
-      item.macroAmountGrams = g;
+
+    const mt = String(macroType || item.macroType).toLowerCase();
+    if (!MACRO_TYPES_LIST.includes(mt)) {
+      return res.status(400).json({
+        success: false,
+        message: 'macroType must be protein, carb or fat',
+      });
     }
-    if (calories != null && calories !== '') {
-      const c = Number(calories);
-      if (Number.isNaN(c)) {
-        return res.status(400).json({ success: false, message: 'calories must be a number' });
-      }
-      item.calories = c;
+
+    const grams = Number(macroAmountGrams);
+    const cal = Number(calories);
+    const rangeError = validateMacroAndCalories(grams, cal);
+    if (rangeError) {
+      return res.status(400).json({
+        success: false,
+        message: rangeError,
+      });
     }
+
+    item.name = trimmedName;
+    item.servingSize = trimmedServing;
+    item.macroType = mt;
+    item.macroAmountGrams = grams;
+    item.calories = cal;
     if (sortOrder != null && sortOrder !== '') item.sortOrder = Number(sortOrder);
     if (status && ['Active', 'Deleted'].includes(status)) item.status = status;
 
@@ -279,7 +299,14 @@ const deleteNutritionCheatSheetItem = async (req, res) => {
     }
 
     const { id } = req.params;
-    const item = await NutritionCheatSheet.findById(id);
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid item id',
+      });
+    }
+
+    const item = await NutritionCheatSheet.findOne({ _id: id, status: { $ne: 'Deleted' } });
     if (!item) {
       return res.status(404).json({
         success: false,

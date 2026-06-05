@@ -3,6 +3,21 @@ const Food = require('../model/foodModel');
 const User = require('../model/userModel');
 const { toPublicFileUrl } = require('../../utils/publicFileUrl');
 
+const FOOD_NAME_PATTERN = /^[a-zA-Z0-9\s\-'.,()&]+$/;
+const FOOD_NAME_MAX = 100;
+
+const validateFoodName = (name) => {
+  const trimmed = String(name || '').trim();
+  if (!trimmed) return 'Food name is required';
+  if (trimmed.length > FOOD_NAME_MAX) {
+    return `Food name must be ${FOOD_NAME_MAX} characters or fewer`;
+  }
+  if (!FOOD_NAME_PATTERN.test(trimmed)) {
+    return "Food name contains invalid characters";
+  }
+  return null;
+};
+
 const allowedCategories = ['Protein', 'Carbs', 'Vegetables', 'Fruit', 'Fats', 'Other'];
 const allowedMealTypes = [
   'Breakfast',
@@ -58,6 +73,14 @@ const addFoodByAdmin = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'name and calories are required',
+      });
+    }
+
+    const nameError = validateFoodName(name);
+    if (nameError) {
+      return res.status(400).json({
+        success: false,
+        message: nameError,
       });
     }
 
@@ -239,8 +262,30 @@ const updateFoodByAdmin = async (req, res) => {
       });
     }
 
-    if (name != null && name !== '') food.name = name.trim();
-    if (calories != null && calories !== '') food.calories = Number(calories);
+    const trimmedName = name != null ? String(name).trim() : '';
+    if (!trimmedName) {
+      return res.status(400).json({
+        success: false,
+        message: 'name is required',
+      });
+    }
+    if (calories == null || calories === '') {
+      return res.status(400).json({
+        success: false,
+        message: 'calories are required',
+      });
+    }
+
+    const nameError = validateFoodName(trimmedName);
+    if (nameError) {
+      return res.status(400).json({
+        success: false,
+        message: nameError,
+      });
+    }
+
+    food.name = trimmedName;
+    food.calories = Number(calories);
     if (protein != null && protein !== '') food.protein = Number(protein);
     if (carbs != null && carbs !== '') food.carbs = Number(carbs);
     if (fats != null && fats !== '') food.fats = Number(fats);

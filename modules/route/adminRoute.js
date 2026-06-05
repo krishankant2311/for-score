@@ -273,10 +273,10 @@ router.post('/send-notification', upload.none(), verifyAccessToken, sendNotifica
 router.get('/get-all-notifications', upload.none(), verifyAccessToken, getAllNotificationsAdmin);
 
 // Nutrition Cheat Sheet (macro quick reference — admin CRUD)
+router.post('/delete-nutrition-cheat-sheet/:id', upload.none(), verifyAccessToken, deleteNutritionCheatSheetItem);
 router.post('/nutrition-cheat-sheet', upload.none(), verifyAccessToken, addNutritionCheatSheetItem);
 router.get('/nutrition-cheat-sheet', upload.none(), verifyAccessToken, getAllNutritionCheatSheetAdmin);
 router.get('/nutrition-cheat-sheet/:id', upload.none(), verifyAccessToken, getNutritionCheatSheetByIdAdmin);
 router.post('/nutrition-cheat-sheet/:id', upload.none(), verifyAccessToken, updateNutritionCheatSheetItem);
-router.post('/delete-nutrition-cheat-sheet/:id', upload.none(), verifyAccessToken, deleteNutritionCheatSheetItem);
 
 module.exports = router;

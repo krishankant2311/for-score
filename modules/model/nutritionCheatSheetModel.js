@@ -23,11 +23,13 @@ const nutritionCheatSheetSchema = new mongoose.Schema(
       type: Number,
       required: true,
       min: 0,
+      max: 999,
     },
     calories: {
       type: Number,
       required: true,
       min: 0,
+      max: 9999,
     },
     sortOrder: {
       type: Number,
