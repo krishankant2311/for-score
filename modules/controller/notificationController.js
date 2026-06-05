@@ -225,21 +225,33 @@ const sendNotificationByAdmin = async (req, res) => {
       });
     }
 
-    const onesignalResp = await sendOneSignalNotification({
-      title: title.trim(),
-      message: message.trim(),
-      data: data && typeof data === 'object' ? data : {},
-      playerIds: ids,
-      sendToAll: toAll,
-    });
+    let onesignalResp = null;
+    let deliveryOk = false;
+    let deliveryError = null;
+
+    try {
+      onesignalResp = await sendOneSignalNotification({
+        title: title.trim(),
+        message: message.trim(),
+        data: data && typeof data === 'object' ? data : {},
+        playerIds: ids,
+        sendToAll: toAll,
+      });
+      deliveryOk = isOneSignalDeliveryOk(onesignalResp);
+      deliveryError = deliveryOk ? null : getOneSignalDeliveryError(onesignalResp);
+    } catch (pushErr) {
+      deliveryError = pushErr?.message || 'Failed to send push notification';
+      onesignalResp = pushErr?.response || null;
+      if (pushErr?.code === 'ONESIGNAL_ENV_MISSING') {
+        deliveryError =
+          'Push notifications are not configured on the server (ONESIGNAL_APP_ID / ONESIGNAL_REST_API_KEY).';
+      }
+    }
 
     const invalidIds = collectInvalidIds(onesignalResp?.errors);
     if (invalidIds.length) {
       await pruneInvalidSubscriptionIds(allMongoUserIds, invalidIds);
     }
-
-    const deliveryOk = isOneSignalDeliveryOk(onesignalResp);
-    const deliveryError = deliveryOk ? null : getOneSignalDeliveryError(onesignalResp);
     const targetUserIds = toAll ? [] : dedupeMongoUserIds(allMongoUserIds);
     const invalidSet = new Set(invalidIds.map(String));
     const sentPlayerIds = toAll ? [] : ids.filter((id) => !invalidSet.has(String(id)));
@@ -262,14 +274,21 @@ const sendNotificationByAdmin = async (req, res) => {
     });
 
     if (!deliveryOk) {
-      return res.status(502).json({
+      const statusCode =
+        deliveryError && deliveryError.includes('not configured on the server') ? 503 : 502;
+      return res.status(statusCode).json({
         success: false,
-        message: 'Push notification was not delivered by OneSignal',
+        message:
+          toAll && statusCode === 503
+            ? 'Cannot send to all users: push service is not configured on the server'
+            : 'Push notification was not delivered by OneSignal',
         error: deliveryError,
         result: doc,
         onesignal: onesignalResp,
         hint:
-          'Check Render env ONESIGNAL_APP_ID matches mobile app. In OneSignal → Audience → Subscriptions, copy Subscription ID (not User ID). Re-save via POST /api/user/profile/player-id from the app.',
+          toAll
+            ? 'Verify ONESIGNAL_APP_ID and ONESIGNAL_REST_API_KEY on the server, and that your OneSignal app has an "All" or "Subscribed Users" segment.'
+            : 'Check Render env ONESIGNAL_APP_ID matches mobile app. In OneSignal → Audience → Subscriptions, copy Subscription ID (not User ID). Re-save via POST /api/user/profile/player-id from the app.',
       });
     }
 

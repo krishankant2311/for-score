@@ -45,12 +45,15 @@ const addFeedback = async (req, res) => {
       });
     }
 
-    const feedback = await Feedback.create({
+    const contactEmail = (email || '').trim();
+    const payload = {
       userId: user_id,
       type: resolvedType,
-      email: (email || '').trim(),
       message: message.trim(),
-    });
+    };
+    if (contactEmail) payload.email = contactEmail;
+
+    const feedback = await Feedback.create(payload);
 
     return res.json({
       success: true,
@@ -257,6 +260,18 @@ const deleteMyFeedback = async (req, res) => {
   }
 };
 
+const shapeFeedbackForAdmin = (doc) => {
+  const user = doc?.userId && typeof doc.userId === 'object' ? doc.userId : null;
+  const contactEmail = String(doc?.email ?? '').trim();
+  return {
+    ...doc,
+    userId: user?._id ?? doc.userId,
+    userName: user?.name ?? '',
+    userEmail: user?.email ?? '',
+    contactEmail: contactEmail || '',
+  };
+};
+
 // 6. Admin - Get all feedback (with optional filters)
 const getAllFeedbackAdmin = async (req, res) => {
   try {
@@ -281,13 +296,14 @@ const getAllFeedbackAdmin = async (req, res) => {
     else if (statusFilter === 'deleted') query.status = 'Deleted';
 
     const feedbacks = await Feedback.find(query)
+      .populate('userId', 'name email')
       .sort({ createdAt: -1 })
       .lean();
 
     return res.json({
       success: true,
       message: 'Feedback list fetched successfully',
-      result: feedbacks,
+      result: feedbacks.map(shapeFeedbackForAdmin),
     });
   } catch (err) {
     console.error(err);
@@ -311,7 +327,7 @@ const getFeedbackByIdAdmin = async (req, res) => {
     }
 
     const { id } = req.params;
-    const feedback = await Feedback.findById(id).lean();
+    const feedback = await Feedback.findById(id).populate('userId', 'name email').lean();
 
     if (!feedback) {
       return res.status(404).json({
@@ -323,7 +339,7 @@ const getFeedbackByIdAdmin = async (req, res) => {
     return res.json({
       success: true,
       message: 'Feedback fetched successfully',
-      result: feedback,
+      result: shapeFeedbackForAdmin(feedback),
     });
   } catch (err) {
     console.error(err);

@@ -172,6 +172,7 @@ const getAdminDashboard = async (req, res) => {
       status: 'Active',
       ...dateMatch('createdAt', from, to),
     });
+    const totalProgramsPromise = Program.countDocuments({ isDeleted: { $ne: true } });
 
     // Users delta (previous period) based on createdAt
     let usersDelta = null;
@@ -197,6 +198,7 @@ const getAdminDashboard = async (req, res) => {
       nutritionLogsToday,
       totalNutritionItems,
       nutritionItemsAddedInRange,
+      totalPrograms,
     ] =
       await Promise.all([
         totalUsersPromise,
@@ -207,6 +209,7 @@ const getAdminDashboard = async (req, res) => {
         nutritionLogsTodayPromise,
         totalNutritionItemsPromise,
         nutritionItemsAddedInRangePromise,
+        totalProgramsPromise,
       ]);
 
     // If there is no WorkoutLog data, show library additions in the same range on the card
@@ -465,6 +468,7 @@ const getAdminDashboard = async (req, res) => {
           totalActiveUsers,
           activeToday,
           exercisesToday: exercisesTodayFinal,
+          totalPrograms,
           totalExercises,
           exercisesAddedInRange,
           nutritionLogsToday: nutritionLogsTodayFinal,

@@ -126,16 +126,34 @@ const sendOneSignalNotification = async ({
   const authHeaders = { Authorization: `Basic ${restApiKey}` };
 
   if (sendToAll) {
-    const resp = await postJson(
-      ONESIGNAL_API_PATH,
-      {
-        ...buildBasePayload({ appId, title, message, data }),
-        included_segments: ['Subscribed Users'],
-      },
-      authHeaders
-    );
-    resp._deliveryMethod = 'included_segments';
-    return resp;
+    const segments = [
+      process.env.ONESIGNAL_BROADCAST_SEGMENT,
+      'Subscribed Users',
+      'All',
+    ].filter(Boolean);
+    const tried = [...new Set(segments)];
+    let lastErr = null;
+
+    for (const segment of tried) {
+      try {
+        const resp = await postJson(
+          ONESIGNAL_API_PATH,
+          {
+            ...buildBasePayload({ appId, title, message, data }),
+            included_segments: [segment],
+          },
+          authHeaders
+        );
+        resp._deliveryMethod = `included_segments:${segment}`;
+        return resp;
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+
+    const err = lastErr || new Error('OneSignal broadcast failed for all segments');
+    err.code = 'ONESIGNAL_BROADCAST_FAILED';
+    throw err;
   }
 
   if (!recipientIds.length) {
