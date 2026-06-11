@@ -7,6 +7,115 @@ const { rewriteProgramMediaUrlsForResponse } = require('../../utils/programMedia
 
 const MON_FIRST_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 
+const DAY_LABELS = {
+  mon: 'Monday',
+  tue: 'Tuesday',
+  wed: 'Wednesday',
+  thu: 'Thursday',
+  fri: 'Friday',
+  sat: 'Saturday',
+  sun: 'Sunday',
+};
+
+/** API keys: monday, tuesday, … (full English day names) */
+const DAY_API_KEYS = {
+  mon: 'monday',
+  tue: 'tuesday',
+  wed: 'wednesday',
+  thu: 'thursday',
+  fri: 'friday',
+  sat: 'saturday',
+  sun: 'sunday',
+};
+
+const getMondayOfWeek = (refDate) => {
+  const d = normalizeCalendarDate(refDate);
+  const js = d.getDay();
+  const diff = js === 0 ? -6 : 1 - js;
+  const monday = new Date(d);
+  monday.setDate(d.getDate() + diff);
+  return monday;
+};
+
+const addCalendarDays = (refDate, days) => {
+  const d = new Date(refDate);
+  d.setDate(d.getDate() + days);
+  return d;
+};
+
+const toDateOnlyString = (d) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
+
+const loadActiveProgramContext = async (user_id) => {
+  const user = await User.findById(user_id).select('activeProgramId programStartedAt').lean();
+  if (!user) {
+    return { error: { status: 400, body: { success: false, message: 'User not found' } } };
+  }
+  if (!user.activeProgramId || !user.programStartedAt) {
+    return {
+      error: {
+        status: 400,
+        body: {
+          success: false,
+          message: 'No active program. POST /api/user/programs/active with programId first.',
+        },
+      },
+    };
+  }
+
+  const program = await Program.findOne({
+    _id: user.activeProgramId,
+    status: 'Active',
+    isDeleted: { $ne: true },
+  }).lean();
+
+  if (!program) {
+    return {
+      error: {
+        status: 404,
+        body: { success: false, message: 'Active program no longer exists' },
+      },
+    };
+  }
+
+  return { user, program };
+};
+
+const buildDayWorkoutSummary = (slots, program, exercises) => {
+  const exerciseCount = exercises.length;
+  const completedCount = exercises.filter((e) => e.completed).length;
+  const completionPercent = exerciseCount ? Math.round((completedCount / exerciseCount) * 100) : 0;
+  const estimatedMinutes = exerciseCount ? estimateSessionMinutes(slots, program) : 0;
+  const sumCals = slots.reduce(
+    (a, s) =>
+      a +
+      (s.caloriesEstimate != null && !Number.isNaN(Number(s.caloriesEstimate))
+        ? Number(s.caloriesEstimate)
+        : 0),
+    0
+  );
+  let estimatedCalories = sumCals > 0 ? Math.round(sumCals) : null;
+  if (estimatedCalories == null && estimatedMinutes && program.avgSessionMinutes) {
+    estimatedCalories = Math.round(
+      (estimatedMinutes / Math.max(Number(program.avgSessionMinutes), 1)) * 300
+    );
+  } else if (estimatedCalories == null && exerciseCount) {
+    estimatedCalories = exerciseCount * 45;
+  }
+
+  return {
+    total_exercises: exerciseCount,
+    completed_exercises: completedCount,
+    completion_percent: completionPercent,
+    estimated_minutes: estimatedMinutes,
+    estimated_calories: estimatedCalories != null ? estimatedCalories : 0,
+  };
+};
+
 const normalizeCalendarDate = (dateInput) => {
   const d = dateInput ? new Date(dateInput) : new Date();
   d.setHours(0, 0, 0, 0);
@@ -120,8 +229,15 @@ const guessLibraryFromScheduleToken = (exerciseLibrary, token) => {
 
 const isCadenceRestToken = (token) =>
   /^rest$/i.test(String(token || '').trim());
-const isCadenceRecoveryToken = (token) =>
-  /^recover(y|ies)?$/i.test(String(token || '').trim());
+const isCadenceRecoveryToken = (token) => {
+  const t = String(token || '').trim();
+  if (/^recover(y|ies)?$/i.test(t)) return true;
+  if (/liss/i.test(t)) return true;
+  if (/stretch/i.test(t)) return true;
+  if (/^cardio$/i.test(t)) return true;
+  if (/active\s*rest/i.test(t)) return true;
+  return false;
+};
 const classifyCadenceDayType = (token) => {
   if (isCadenceRestToken(token)) return 'rest';
   if (isCadenceRecoveryToken(token)) return 'recovery';
@@ -1087,6 +1203,114 @@ const getSelectedProgramForUser = async (req, res) => {
   }
 };
 
+/**
+ * GET /api/user/programs/active/weekly-schedule?date=YYYY-MM-DD
+ * Returns Mon–Sun workouts for the user's selected (active) program.
+ */
+const getWeeklyScheduleForActiveProgram = async (req, res) => {
+  try {
+    const user_id = req.token?._id;
+    const ctx = await loadActiveProgramContext(user_id);
+    if (ctx.error) return res.status(ctx.error.status).json(ctx.error.body);
+
+    const { user, program } = ctx;
+    const refDate = req.query.date ? new Date(req.query.date) : new Date();
+    if (Number.isNaN(refDate.getTime())) {
+      return res.status(400).json({ success: false, message: 'Invalid date query' });
+    }
+
+    const weekStart = getMondayOfWeek(refDate);
+    const weekEnd = addCalendarDays(weekStart, 6);
+    const programIdStr = String(program._id);
+
+    const completionDocs = await DailyExerciseCompletion.find({
+      userId: user_id,
+      date: {
+        $gte: normalizeCalendarDate(weekStart),
+        $lte: normalizeCalendarDate(weekEnd),
+      },
+    }).lean();
+
+    const completionByDate = new Map(
+      completionDocs.map((doc) => [toDateOnlyString(normalizeCalendarDate(doc.date)), doc])
+    );
+
+    const weekly_schedule = {};
+    const days = [];
+
+    MON_FIRST_KEYS.forEach((dayKey, index) => {
+      const dayDate = addCalendarDays(weekStart, index);
+      const normalizedDate = normalizeCalendarDate(dayDate);
+      const dateKey = toDateOnlyString(normalizedDate);
+      const apiDayKey = DAY_API_KEYS[dayKey] || dayKey;
+
+      const { slots, inferred, weekNum, maxWeek, dayType } = resolveTodaysExerciseSlots(
+        program,
+        user.programStartedAt,
+        dayDate,
+        programIdStr
+      );
+
+      const completion = completionByDate.get(dateKey);
+      const doneKeys = new Set(
+        (completion?.completedSlotKeys || []).map((k) => String(k).trim()).filter(Boolean)
+      );
+
+      const workouts = slots.map((slot) =>
+        buildTodayWorkoutListItem(req, slot, doneKeys.has(slot.slotKey))
+      );
+
+      const dayPayload = {
+        day_key: dayKey,
+        day_label: DAY_LABELS[dayKey] || dayKey,
+        date: normalizedDate,
+        date_string: dateKey,
+        schedule_token: inferred.scheduleToken || null,
+        workout_title: inferred.workoutTitle || program.programName || '',
+        day_type: dayType,
+        week_number: weekNum,
+        week_count: maxWeek,
+        is_rest_day: dayType === 'rest',
+        is_recovery_day: dayType === 'recovery',
+        workouts,
+        exercises: workouts,
+        recovery: dayType === 'recovery' ? buildRecoveryPayloadForResponse(req, program) : null,
+        summary: buildDayWorkoutSummary(slots, program, workouts),
+      };
+
+      weekly_schedule[apiDayKey] = dayPayload;
+      days.push(dayPayload);
+    });
+
+    return res.json({
+      success: true,
+      message: 'Weekly workout schedule fetched successfully',
+      result: {
+        activeProgramId: user.activeProgramId,
+        programStartedAt: user.programStartedAt,
+        program: {
+          _id: program._id,
+          programName: program.programName,
+          programCode: program.programCode,
+          durationWeeks: program.durationWeeks,
+          daysPerWeek: program.daysPerWeek,
+        },
+        week_start: toDateOnlyString(weekStart),
+        week_end: toDateOnlyString(weekEnd),
+        weekly_schedule,
+        days,
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: err.message,
+    });
+  }
+};
+
 const getTodayWorkout = async (req, res) => {
   try {
     const user_id = req.token?._id;
@@ -1420,6 +1644,7 @@ module.exports = {
   selectActiveProgram,
   getSelectedProgramForUser,
   getActiveProgramForUser: getSelectedProgramForUser,
+  getWeeklyScheduleForActiveProgram,
   getTodayWorkout,
   getTodayExerciseDetailFromProgram,
   saveTodayExercisePerformance,
