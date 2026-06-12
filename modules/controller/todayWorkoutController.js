@@ -1203,6 +1203,233 @@ const getSelectedProgramForUser = async (req, res) => {
   }
 };
 
+const LIBRARY_ALIAS_KEYS = new Set([
+  'workouta',
+  'workoutb',
+  'workoutc',
+  'upper',
+  'lower',
+  'full',
+  'fullbody',
+  'alternatives',
+  'cardio',
+]);
+
+const isExerciseArray = (value) => Array.isArray(value) && value.length > 0;
+
+const resolveSlotsForScheduleToken = (program, programIdStr, scheduleToken, dayKey) => {
+  const exerciseLibrary =
+    program.exerciseLibrary && typeof program.exerciseLibrary === 'object'
+      ? program.exerciseLibrary
+      : {};
+  const weekGrid = program.weekGrid && typeof program.weekGrid === 'object' ? program.weekGrid : {};
+
+  const token = scheduleToken != null && scheduleToken !== '' ? String(scheduleToken).trim() : '';
+  const dayType = classifyCadenceDayType(token);
+  if (dayType !== 'workout') {
+    return {
+      dayType,
+      slots: [],
+      workoutTitle: resolveWorkoutDisplayTitle(token, weekGrid, program, dayKey),
+      scheduleToken: token || null,
+    };
+  }
+
+  let listRaw = libraryLookup(exerciseLibrary, token);
+  if (!listRaw && token) {
+    listRaw = guessLibraryFromScheduleToken(exerciseLibrary, token);
+  }
+  if (!listRaw && /^[A-E]$/i.test(token)) {
+    const letter = token.toUpperCase();
+    listRaw =
+      program.workouts?.[letter] ??
+      program.workouts?.[letter.toLowerCase()] ??
+      null;
+  }
+
+  const slots = normalizeExerciseListFromProgram(listRaw, programIdStr);
+  return {
+    dayType,
+    slots,
+    workoutTitle: resolveWorkoutDisplayTitle(token, weekGrid, program, dayKey),
+    scheduleToken: token || null,
+  };
+};
+
+const collectWorkoutModulesFromProgram = (req, program, programIdStr) => {
+  const weekGrid = program.weekGrid && typeof program.weekGrid === 'object' ? program.weekGrid : {};
+  const exerciseLibrary =
+    program.exerciseLibrary && typeof program.exerciseLibrary === 'object'
+      ? program.exerciseLibrary
+      : {};
+  const workoutsObj =
+    program.workouts && typeof program.workouts === 'object' && !Array.isArray(program.workouts)
+      ? program.workouts
+      : {};
+
+  const modules = {};
+  const seenSlotSignatures = new Set();
+
+  const addModule = (key, rawList) => {
+    const moduleKey = String(key || '').trim();
+    if (!moduleKey || !isExerciseArray(rawList)) return;
+
+    const slots = normalizeExerciseListFromProgram(rawList, programIdStr);
+    if (!slots.length) return;
+
+    const signature = slots.map((s) => s.slotKey).join('|');
+    if (seenSlotSignatures.has(signature)) return;
+    seenSlotSignatures.add(signature);
+
+    const meta =
+      program.workoutsMeta?.[moduleKey] ??
+      program.workoutsMeta?.[moduleKey.toUpperCase()] ??
+      null;
+
+    const listItems = slots.map((slot) => buildTodayWorkoutListItem(req, slot, false));
+
+    modules[moduleKey] = {
+      module_key: moduleKey,
+      workout_title: resolveWorkoutDisplayTitle(moduleKey, weekGrid, program, null),
+      day_type: 'workout',
+      meta,
+      exercise_count: slots.length,
+      summary: buildDayWorkoutSummary(slots, program, listItems),
+      workouts: listItems,
+      exercises: listItems,
+    };
+  };
+
+  for (const letter of ['A', 'B', 'C', 'D', 'E']) {
+    const raw =
+      workoutsObj[letter] ??
+      exerciseLibrary[letter] ??
+      exerciseLibrary[`workout${letter}`] ??
+      null;
+    addModule(letter, raw);
+  }
+
+  for (const key of Object.keys(exerciseLibrary)) {
+    if (LIBRARY_ALIAS_KEYS.has(String(key).toLowerCase())) continue;
+    if (/^[A-E]$/i.test(key)) continue;
+    addModule(key, exerciseLibrary[key]);
+  }
+
+  return modules;
+};
+
+const buildProgramWeeklyTemplate = (req, program, programIdStr) => {
+  const weekGrid = program.weekGrid && typeof program.weekGrid === 'object' ? program.weekGrid : {};
+  const weekly_template = {};
+
+  MON_FIRST_KEYS.forEach((dayKey) => {
+    const apiDayKey = DAY_API_KEYS[dayKey] || dayKey;
+    const inferred = inferScheduleStrategy(weekGrid, 1, dayKey, program);
+    const resolved = resolveSlotsForScheduleToken(
+      program,
+      programIdStr,
+      inferred.scheduleToken,
+      dayKey
+    );
+
+    const workouts = resolved.slots.map((slot) => buildTodayWorkoutListItem(req, slot, false));
+
+    weekly_template[apiDayKey] = {
+      day_key: dayKey,
+      day_label: DAY_LABELS[dayKey] || dayKey,
+      day_type: resolved.dayType,
+      schedule_token: resolved.scheduleToken,
+      workout_title: resolved.workoutTitle || inferred.workoutTitle || program.programName || '',
+      is_rest_day: resolved.dayType === 'rest',
+      is_recovery_day: resolved.dayType === 'recovery',
+      workouts,
+      exercises: workouts,
+      recovery:
+        resolved.dayType === 'recovery' ? buildRecoveryPayloadForResponse(req, program) : null,
+      summary: buildDayWorkoutSummary(resolved.slots, program, workouts),
+    };
+  });
+
+  return weekly_template;
+};
+
+/**
+ * GET /api/user/programs/:id/workouts
+ * All workouts in a program by program id (modules + weekly template + recovery).
+ */
+const getProgramWorkoutsById = async (req, res) => {
+  try {
+    const user_id = req.token?._id;
+    if (!user_id) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    const { id } = req.params;
+    if (!id) {
+      return res.status(400).json({ success: false, message: 'Program id is required' });
+    }
+
+    const program = await Program.findOne({
+      _id: id,
+      status: 'Active',
+      isDeleted: { $ne: true },
+    }).lean();
+
+    if (!program) {
+      return res.status(404).json({ success: false, message: 'Program not found' });
+    }
+
+    const programIdStr = String(program._id);
+    const workout_modules = collectWorkoutModulesFromProgram(req, program, programIdStr);
+    const weekly_template = buildProgramWeeklyTemplate(req, program, programIdStr);
+    const recovery = buildRecoveryPayloadForResponse(req, program);
+
+    const all_workouts = [];
+    const seenKeys = new Set();
+    Object.values(workout_modules).forEach((mod) => {
+      (mod.workouts || []).forEach((item) => {
+        const dedupeKey = `${mod.module_key}::${item.slotKey || item.name}`;
+        if (seenKeys.has(dedupeKey)) return;
+        seenKeys.add(dedupeKey);
+        all_workouts.push({
+          ...item,
+          module_key: mod.module_key,
+          workout_title: mod.workout_title,
+        });
+      });
+    });
+
+    return res.json({
+      success: true,
+      message: 'Program workouts fetched successfully',
+      result: {
+        program: {
+          _id: program._id,
+          programName: program.programName,
+          programCode: program.programCode,
+          durationWeeks: program.durationWeeks,
+          daysPerWeek: program.daysPerWeek,
+          frequencyPerWeek: program.frequencyPerWeek,
+          avgSessionMinutes: program.avgSessionMinutes,
+        },
+        workout_modules,
+        weekly_template,
+        recovery,
+        all_workouts,
+        total_workout_modules: Object.keys(workout_modules).length,
+        total_exercises: all_workouts.length,
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: err.message,
+    });
+  }
+};
+
 /**
  * GET /api/user/programs/active/weekly-schedule?date=YYYY-MM-DD
  * Returns Mon–Sun workouts for the user's selected (active) program.
@@ -1645,6 +1872,7 @@ module.exports = {
   getSelectedProgramForUser,
   getActiveProgramForUser: getSelectedProgramForUser,
   getWeeklyScheduleForActiveProgram,
+  getProgramWorkoutsById,
   getTodayWorkout,
   getTodayExerciseDetailFromProgram,
   saveTodayExercisePerformance,
