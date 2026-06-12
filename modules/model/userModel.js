@@ -112,6 +112,19 @@ const userSchema = new mongoose.Schema(
       type: Number,
       default: "",
     },
+    // Harris-Benedict activity multiplier tier (onboarding dropdown)
+    activityFactor: {
+      type: String,
+      enum: [
+        '',
+        'sedentary',
+        'lightly_active',
+        'moderately_active',
+        'very_active',
+        'extra_active',
+      ],
+      default: '',
+    },
     selectedPlan: {
       type: String,
       default: '',

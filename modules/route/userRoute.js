@@ -11,6 +11,7 @@ const {
   forgotPassword,
   resetPassword,
   getUserProfile,
+  getCalorieCalculations,
   updateUserProfile,
   updateProfilePhoto,
   changeUserPassword,
@@ -21,6 +22,7 @@ const {
   addWorkoutSkillLevel,
   addWorkoutPreferences,
   addFitnessTarget,
+  addActivityFactor,
   addFitnessGoal,
   addTargetWeight,
   addGoalDuration,
@@ -187,6 +189,7 @@ router.post('/auth/google', upload.none(), googleAuth);
 router.post('/forgot-password', upload.none(), forgotPassword);
 router.post('/reset-password', upload.none(), resetPassword);
 router.get('/profile', upload.none(), verifyAccessToken, getUserProfile);
+router.get('/profile/calculations', upload.none(), verifyAccessToken, getCalorieCalculations);
 router.post('/profile/edit', upload.none(), verifyAccessToken, updateUserProfile);
 router.post('/profile/photo', upload.single('photo'), verifyAccessToken, updateProfilePhoto);
 router.post('/change-password', upload.none(), verifyAccessToken, changeUserPassword);
@@ -199,6 +202,7 @@ router.post('/profile/age', upload.none(), verifyAccessToken, addAge);
 router.post('/profile/workout-skill-level', upload.none(), verifyAccessToken, addWorkoutSkillLevel);
 router.post('/profile/workout-preferences', upload.none(), verifyAccessToken, addWorkoutPreferences);
 router.post('/profile/fitness-target', upload.none(), verifyAccessToken, addFitnessTarget);
+router.post('/profile/activity-factor', upload.none(), verifyAccessToken, addActivityFactor);
 router.post('/profile/fitness-goal', upload.none(), verifyAccessToken, addFitnessGoal);
 
 router.post('/profile/target-weight', upload.none(), verifyAccessToken, addTargetWeight);

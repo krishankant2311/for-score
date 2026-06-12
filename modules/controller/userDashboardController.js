@@ -24,7 +24,10 @@ const {
 } = require('./todayWorkoutController');
 const { buildGoalView } = require('./userGoalController');
 const { buildWaterView } = require('./waterLogController');
-const { getDailyCalorieTarget } = require('../../utils/calorieTargetHelpers');
+const {
+  getDailyCalorieTargetDetails,
+  buildCalorieEngineResult,
+} = require('../../utils/calorieTargetHelpers');
 const {
   SCHEDULED_MEAL_TYPES,
   enrichMealLogForResponse,
@@ -230,10 +233,11 @@ const buildTodayDietCard = async (user, refDate) => {
 
   const macros = sumMealMacros(logs);
 
-  const calorieTarget = getDailyCalorieTarget(user);
-  const proteinTarget = 180;
-  const carbsTarget = 220;
-  const fatsTarget = 65;
+  const calorieDetails = getDailyCalorieTargetDetails(user);
+  const calorieTarget = calorieDetails.target;
+  const proteinTarget = calorieDetails.macros?.protein_grams ?? 0;
+  const carbsTarget = calorieDetails.macros?.carb_grams ?? 0;
+  const fatsTarget = calorieDetails.macros?.fat_grams ?? 0;
 
   const remainingCalories = Math.max(0, calorieTarget - macros.calories);
 
@@ -364,12 +368,16 @@ const getUserDashboard = async (req, res) => {
       ? toPublicFileUrl(req, user.profilePhoto)
       : '';
 
+    const calorieEngine = buildCalorieEngineResult(user);
+
     return res.json({
       success: true,
       message: 'Dashboard fetched successfully',
       result: {
         date: refDate.toISOString(),
         dayName: dayKeyName(refDate),
+        calculations: calorieEngine.calculations,
+        goal_timeline_warning: calorieEngine.goal_timeline_warning,
         header: {
           greeting,
           name,

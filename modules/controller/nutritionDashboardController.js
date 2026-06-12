@@ -268,9 +268,9 @@ const buildDailyNutritionPayload = (user, logs, normalizedDate) => {
 
   const calorieDetails = getDailyCalorieTargetDetails(user);
   const calorieTarget = calorieDetails.target;
-  const proteinTarget = 150;
-  const carbsTarget = 250;
-  const fatsTarget = 70;
+  const proteinTarget = calorieDetails.macros?.protein_grams ?? 0;
+  const carbsTarget = calorieDetails.macros?.carb_grams ?? 0;
+  const fatsTarget = calorieDetails.macros?.fat_grams ?? 0;
 
   const currentCalories = roundMacro(macros.calories);
   const targetCalories = roundMacro(calorieTarget);
@@ -296,7 +296,12 @@ const buildDailyNutritionPayload = (user, logs, normalizedDate) => {
       maintenance: calorieDetails.maintenanceCalories,
       adjustment: calorieDetails.calorieAdjustment,
       calculatedFromProfile: calorieDetails.calculatedFromProfile,
+      bmr: calorieDetails.bmr,
+      activity_factor: calorieDetails.activityFactor,
+      activity_multiplier: calorieDetails.activityMultiplier,
     },
+    calculations: calorieDetails.calculations,
+    goal_timeline_warning: calorieDetails.goal_timeline_warning,
     macros: {
       protein: macroBlock(macros.protein, proteinTarget),
       carbs: macroBlock(macros.carbs, carbsTarget),

@@ -8,6 +8,11 @@ const { getResetPasswordTemplate } = require('../service/resetPasswordTemplate')
 const { getSignupOtpTemplate } = require('../service/signupOtpTemplate');
 const { verifyGoogleIdToken } = require('../service/googleAuthService');
 const { syncPrimaryWeightGoal } = require('./userGoalController');
+const {
+  buildCalorieEngineResult,
+  normalizeActivityFactorKey,
+  ALLOWED_ACTIVITY_FACTOR_KEYS,
+} = require('../../utils/calorieTargetHelpers');
 
 // Safe wrapper: dashboard goal sync must never break the profile-save flow.
 // We log the error and continue so the user still sees their profile update.
@@ -33,6 +38,8 @@ const buildSignupProfileUpdate = (body) => {
     weight,
     age,
     fitnessGoal,
+    activityFactor,
+    activity_factor,
     workoutSkillLevel,
     workoutPreferences,
     fitnessTarget,
@@ -90,6 +97,12 @@ const buildSignupProfileUpdate = (body) => {
       const calorieMap = { lose_1: -500, lose_0_5: -250, maintain: 0, gain_0_5: 250, gain_1: 500 };
       profileUpdate.calorieAdjustment = calorieMap[goalVal];
     }
+  }
+
+  const activityRaw = activityFactor ?? activity_factor;
+  if (activityRaw != null && activityRaw !== '') {
+    const activityKey = normalizeActivityFactorKey(activityRaw);
+    if (activityKey) profileUpdate.activityFactor = activityKey;
   }
 
   if (workoutSkillLevel) {
@@ -225,6 +238,20 @@ const attachProfilePhotoUrl = (req, data) => {
   return {
     ...sanitized,
     profilePhoto: profilePhotoUrl,
+  };
+};
+
+const enrichUserProfileResponse = (req, userObj) => {
+  const base = attachProfilePhotoUrl(req, userObj);
+  const engine = buildCalorieEngineResult(userObj);
+  return {
+    ...base,
+    calculations: engine.calculations,
+    goal_timeline_warning: engine.goal_timeline_warning,
+    activity_factor: engine.activity_factor,
+    activity_multiplier: engine.activity_multiplier,
+    calorie_adjustment: engine.calorie_adjustment,
+    calculatedFromProfile: engine.calculatedFromProfile,
   };
 };
 
@@ -905,7 +932,7 @@ const getUserProfile = async (req, res, next) => {
     return res.status(200).json({
       success: true,
       message: 'User profile fetched successfully',
-      data: attachProfilePhotoUrl(req, user.toObject()),
+      data: enrichUserProfileResponse(req, user.toObject()),
     });
   } catch (err) {
     next(err);
@@ -1025,6 +1052,18 @@ const updateUserProfile = async (req, res, next) => {
       user.calorieAdjustment = Number(body.calorieAdjustment);
     }
 
+    const activityRaw = body.activityFactor ?? body.activity_factor;
+    if (activityRaw != null && activityRaw !== '') {
+      const activityKey = normalizeActivityFactorKey(activityRaw);
+      if (!activityKey) {
+        return res.status(400).json({
+          success: false,
+          message: `Valid activityFactor required (${ALLOWED_ACTIVITY_FACTOR_KEYS.join(', ')})`,
+        });
+      }
+      user.activityFactor = activityKey;
+    }
+
     await user.save();
     // Keep the auto-managed primary weight goal in sync with profile changes.
     await safeSyncWeightGoal(user);
@@ -1035,7 +1074,37 @@ const updateUserProfile = async (req, res, next) => {
     return res.status(200).json({
       success: true,
       message: 'Profile updated successfully',
-      data: attachProfilePhotoUrl(req, result),
+      data: enrichUserProfileResponse(req, result),
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const getCalorieCalculations = async (req, res, next) => {
+  try {
+    const user_id = req.token?._id;
+    const user = await User.findById(user_id).select('-password').lean();
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    if (user.status === 'Deleted') {
+      return res.status(400).json({
+        success: false,
+        message: 'User account has been deleted',
+      });
+    }
+
+    const engine = buildCalorieEngineResult(user);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Calorie calculations fetched successfully',
+      result: engine,
     });
   } catch (err) {
     next(err);
@@ -1777,6 +1846,62 @@ const addFitnessTarget = async (req, res) => {
   }
 };
 
+// 8a. addActivityFactor – Harris-Benedict activity tier (sedentary → extra_active)
+const addActivityFactor = async (req, res) => {
+  try {
+    const token = req.token;
+    const user_id = token._id;
+    const raw = req.body?.activityFactor ?? req.body?.activity_factor;
+
+    if (raw == null || raw === '') {
+      return res.status(400).json({
+        success: false,
+        message: 'activityFactor is required',
+      });
+    }
+
+    const value = normalizeActivityFactorKey(raw);
+    if (!value) {
+      return res.status(400).json({
+        success: false,
+        message: `Valid activityFactor required (${ALLOWED_ACTIVITY_FACTOR_KEYS.join(', ')})`,
+      });
+    }
+
+    const user = await User.findById(user_id);
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    user.activityFactor = value;
+    await user.save();
+
+    const result = user.toObject();
+    delete result.password;
+    const engine = buildCalorieEngineResult(result);
+
+    return res.json({
+      success: true,
+      message: 'Activity factor added/updated successfully',
+      result: {
+        ...result,
+        calculations: engine.calculations,
+        goal_timeline_warning: engine.goal_timeline_warning,
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: err.message,
+    });
+  }
+};
+
 // 8. addFitnessGoal – token se user validate, phir weekly weight goal add/update (target weight change per week)
 const addFitnessGoal = async (req, res) => {
   try {
@@ -1818,10 +1943,16 @@ const addFitnessGoal = async (req, res) => {
     const result = user.toObject();
     delete result.password;
 
+    const engine = buildCalorieEngineResult(result);
+
     return res.json({
       success: true,
       message: 'Fitness goal added/updated successfully',
-      result,
+      result: {
+        ...result,
+        calculations: engine.calculations,
+        goal_timeline_warning: engine.goal_timeline_warning,
+      },
     });
   } catch (err) {
     console.error(err);
@@ -2154,6 +2285,7 @@ module.exports = {
   forgotPassword,
   resetPassword,
   getUserProfile,
+  getCalorieCalculations,
   updateUserProfile,
   updateProfilePhoto,
   addGender,
@@ -2163,6 +2295,7 @@ module.exports = {
   addWorkoutSkillLevel,
   addWorkoutPreferences,
   addFitnessTarget,
+  addActivityFactor,
   addFitnessGoal,
   addTargetWeight,
   addGoalDuration,
