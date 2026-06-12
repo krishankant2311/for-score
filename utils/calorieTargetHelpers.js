@@ -354,6 +354,20 @@ const getDailyCalorieTargetDetails = (user) => {
 
 const getDailyCalorieTarget = (user) => getDailyCalorieTargetDetails(user).target;
 
+/** True when onboarding fields needed for calorie engine + goals are present. */
+const isProfileOnboardingComplete = (user) => {
+  const g = String(user?.gender || '').toLowerCase();
+  if (!['male', 'female'].includes(g)) return false;
+  if (parsePositiveNumber(user?.age) == null) return false;
+  if (parsePositiveNumber(user?.weight) == null) return false;
+  if (parsePositiveNumber(user?.height) == null) return false;
+  if (!resolveActivityFactorKey(user)) return false;
+  if (!normalizeWeeklyGoalKey(user?.weeklyWeightGoal)) return false;
+  if (parsePositiveNumber(user?.targetweight) == null) return false;
+  if (parseGoalDurationWeeks(user?.goalDuration) == null) return false;
+  return true;
+};
+
 module.exports = {
   WEEKLY_GOAL_CALORIE_MAP,
   WEEKLY_GOAL_RATE_LBS,
@@ -375,4 +389,7 @@ module.exports = {
   normalizeHeightInches,
   normalizeWeightLbs,
   resolveProfileForCalories,
+  isProfileOnboardingComplete,
+  parseGoalDurationWeeks,
+  normalizeWeeklyGoalKey,
 };

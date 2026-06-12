@@ -11,7 +11,9 @@ const { syncPrimaryWeightGoal } = require('./userGoalController');
 const {
   buildCalorieEngineResult,
   normalizeActivityFactorKey,
+  normalizeWeeklyGoalKey,
   ALLOWED_ACTIVITY_FACTOR_KEYS,
+  isProfileOnboardingComplete,
 } = require('../../utils/calorieTargetHelpers');
 
 // Safe wrapper: dashboard goal sync must never break the profile-save flow.
@@ -151,6 +153,82 @@ const buildSignupProfileUpdate = (body) => {
   if (tlParsed) profileUpdate.trainingLocation = tlParsed;
 
   return profileUpdate;
+};
+
+const GOOGLE_SIGNUP_REQUIRED_FIELDS = [
+  'gender',
+  'age',
+  'weight',
+  'height',
+  'activityFactor',
+  'fitnessGoal',
+  'targetweight',
+  'goalDuration',
+];
+
+const validateGoogleSignupBody = (body) => {
+  const missing = [];
+  const errors = [];
+
+  const gender = String(body?.gender || '').toLowerCase();
+  if (!['male', 'female'].includes(gender)) {
+    missing.push('gender');
+  }
+
+  if (body?.age == null || body?.age === '' || Number.isNaN(Number(body.age))) {
+    missing.push('age');
+  }
+
+  if (body?.weight == null || body?.weight === '' || Number.isNaN(Number(body.weight))) {
+    missing.push('weight');
+  }
+
+  const hasHeight =
+    (body?.height != null && body?.height !== '' && !Number.isNaN(Number(body.height))) ||
+    (body?.heightFeet != null && body?.heightInches != null);
+  if (!hasHeight) {
+    missing.push('height (or heightFeet + heightInches)');
+  }
+
+  const activityKey = normalizeActivityFactorKey(
+    body?.activityFactor ?? body?.activity_factor
+  );
+  if (!activityKey) {
+    missing.push('activityFactor');
+  }
+
+  const goalKey = normalizeWeeklyGoalKey(body?.fitnessGoal ?? body?.weeklyWeightGoal);
+  const allowedGoals = ['lose_1', 'lose_0_5', 'maintain', 'gain_0_5', 'gain_1'];
+  if (!goalKey || !allowedGoals.includes(goalKey)) {
+    missing.push('fitnessGoal');
+  }
+
+  const targetRaw = body?.targetweight ?? body?.targetWeight;
+  if (targetRaw == null || targetRaw === '' || Number.isNaN(Number(targetRaw))) {
+    missing.push('targetweight');
+  }
+
+  const gd = String(body?.goalDuration || '').toLowerCase();
+  const allowedGD = ['8w', '12w', '16w', '24w'];
+  if (!allowedGD.includes(gd)) {
+    missing.push('goalDuration');
+  }
+
+  if (body?.workoutFrequency != null && body?.workoutFrequency !== '') {
+    const wf = Number(body.workoutFrequency);
+    if (![3, 4, 5, 6].includes(wf)) {
+      errors.push('workoutFrequency must be 3, 4, 5, or 6');
+    }
+  }
+
+  if (body?.workoutSkillLevel) {
+    const wl = String(body.workoutSkillLevel).toUpperCase();
+    if (!['BEGINNER', 'INTERMEDIATE', 'ADVANCED'].includes(wl)) {
+      errors.push('workoutSkillLevel must be BEGINNER, INTERMEDIATE, or ADVANCED');
+    }
+  }
+
+  return { missing, errors, activityKey, goalKey };
 };
 
 const isPasswordValid = (password) => {
@@ -546,102 +624,214 @@ const verifySignupOtp = async (req, res, next) => {
   }
 };
 
-// POST /api/user/auth/google — body: idToken (Google Sign-In ID token)
-const googleAuth = async (req, res, next) => {
-  try {
-    const { idToken } = req.body;
+const verifyGoogleAuthRequest = async (req) => {
+  const { idToken } = req.body || {};
 
-    if (!idToken || !String(idToken).trim()) {
+  if (!idToken || !String(idToken).trim()) {
+    return {
+      error: {
+        status: 400,
+        body: { success: false, message: 'idToken is required' },
+      },
+    };
+  }
+
+  if (!process.env.GOOGLE_CLIENT_ID && !process.env.GOOGLE_CLIENT_IDS) {
+    return {
+      error: {
+        status: 500,
+        body: {
+          success: false,
+          message: 'Google auth is not configured on server (GOOGLE_CLIENT_ID)',
+        },
+      },
+    };
+  }
+
+  try {
+    const googleUser = await verifyGoogleIdToken(String(idToken).trim());
+    return { googleUser };
+  } catch (err) {
+    return {
+      error: {
+        status: 401,
+        body: {
+          success: false,
+          message: err.message || 'Invalid Google token',
+          code: err.code,
+        },
+      },
+    };
+  }
+};
+
+// POST /api/user/auth/google/signup — first-time Google users (full onboarding required)
+const googleSignup = async (req, res, next) => {
+  try {
+    const auth = await verifyGoogleAuthRequest(req);
+    if (auth.error) {
+      return res.status(auth.error.status).json(auth.error.body);
+    }
+
+    const { googleId, email, name: googleName, picture } = auth.googleUser;
+    const validation = validateGoogleSignupBody(req.body);
+
+    if (validation.missing.length) {
       return res.status(400).json({
         success: false,
-        message: 'idToken is required',
+        message: 'Complete onboarding profile is required for Google signup',
+        missing_fields: validation.missing,
+        required_fields: GOOGLE_SIGNUP_REQUIRED_FIELDS,
       });
     }
 
-    if (!process.env.GOOGLE_CLIENT_ID && !process.env.GOOGLE_CLIENT_IDS) {
-      return res.status(500).json({
+    if (validation.errors.length) {
+      return res.status(400).json({
         success: false,
-        message: 'Google auth is not configured on server (GOOGLE_CLIENT_ID)',
+        message: validation.errors.join('; '),
       });
     }
 
-    let googleUser;
-    try {
-      googleUser = await verifyGoogleIdToken(String(idToken).trim());
-    } catch (err) {
-      return res.status(401).json({
-        success: false,
-        message: err.message || 'Invalid Google token',
-        code: err.code,
-      });
-    }
-
-    const { googleId, email, name: googleName, picture } = googleUser;
-    const profileUpdate = buildSignupProfileUpdate(req.body);
-
-    let user = await User.findOne({
+    const existing = await User.findOne({
       $or: [{ googleId }, { email }],
     });
 
-    if (user?.status === 'Deleted') {
+    if (existing?.status === 'Deleted') {
       return res.status(400).json({
         success: false,
         message: 'This account has been deleted',
       });
     }
 
-    if (user?.status === 'Blocked') {
+    if (existing) {
+      if (existing.googleId) {
+        return res.status(400).json({
+          success: false,
+          message: 'Account already exists. Use Google login instead.',
+          code: 'GOOGLE_ACCOUNT_EXISTS',
+          login_endpoint: '/api/user/auth/google',
+        });
+      }
+      return res.status(400).json({
+        success: false,
+        message: 'This email is already registered. Sign in with email and password.',
+        code: 'EMAIL_ALREADY_REGISTERED',
+      });
+    }
+
+    const profileUpdate = buildSignupProfileUpdate(req.body);
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), salt);
+    const displayName = req.body.name?.trim() || googleName || email.split('@')[0];
+
+    const user = await User.create({
+      name: displayName,
+      email,
+      password: hashedPassword,
+      googleId,
+      authProvider: 'google',
+      profilePhoto: picture || '',
+      status: 'Active',
+      ...profileUpdate,
+    });
+    await safeSyncWeightGoal(user);
+
+    const payload = { _id: user._id, email: user.email };
+    const token = generateAccessToken(payload);
+    const userObj = user.toObject();
+    delete userObj.password;
+
+    return res.status(201).json({
+      success: true,
+      message: 'Google signup successful',
+      isNewUser: true,
+      requiresOnboarding: false,
+      token,
+      data: enrichUserProfileResponse(req, userObj),
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// POST /api/user/auth/google — returning Google users (login only)
+const googleAuth = async (req, res, next) => {
+  try {
+    const auth = await verifyGoogleAuthRequest(req);
+    if (auth.error) {
+      return res.status(auth.error.status).json(auth.error.body);
+    }
+
+    const { googleId, email, name: googleName, picture } = auth.googleUser;
+    const profileUpdate = buildSignupProfileUpdate(req.body);
+
+    let user = await User.findOne({
+      $or: [{ googleId }, { email }],
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'No account found. Complete Google signup with your profile details first.',
+        code: 'GOOGLE_SIGNUP_REQUIRED',
+        signup_endpoint: '/api/user/auth/google/signup',
+        required_fields: GOOGLE_SIGNUP_REQUIRED_FIELDS,
+      });
+    }
+
+    if (user.status === 'Deleted') {
+      return res.status(400).json({
+        success: false,
+        message: 'This account has been deleted',
+      });
+    }
+
+    if (user.status === 'Blocked') {
       return res.status(403).json({
         success: false,
         message: 'Your account is blocked. Please contact support.',
       });
     }
 
-    if (!user) {
-      const salt = await bcrypt.genSalt(10);
-      const hashedPassword = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), salt);
-      const displayName = req.body.name?.trim() || googleName || email.split('@')[0];
-
-      user = await User.create({
-        name: displayName,
-        email,
-        password: hashedPassword,
-        googleId,
-        authProvider: 'google',
-        profilePhoto: picture || '',
-        status: 'Active',
-        ...profileUpdate,
+    if (user.googleId && user.googleId !== googleId) {
+      return res.status(400).json({
+        success: false,
+        message: 'This email is linked to a different Google account',
       });
-      await safeSyncWeightGoal(user);
-    } else {
-      if (user.googleId && user.googleId !== googleId) {
+    }
+
+    if (!user.googleId) {
+      if (user.authProvider === 'local' && user.status === 'Active') {
         return res.status(400).json({
           success: false,
-          message: 'This email is linked to a different Google account',
+          message: 'This email is registered with password. Sign in with email/password.',
+          code: 'EMAIL_PASSWORD_ACCOUNT',
         });
       }
-
-      if (!user.googleId) {
-        user.googleId = googleId;
-        user.authProvider = 'google';
-      }
-
-      if (user.status === 'Pending') {
-        user.status = 'Active';
-        user.otp = { otpValue: '', otpExpiry: null, otpSentAt: null };
-      }
-
-      if (!user.name?.trim()) {
-        user.name = req.body.name?.trim() || googleName || user.name;
-      }
-      if (!user.profilePhoto?.trim() && picture) {
-        user.profilePhoto = picture;
-      }
-
-      Object.assign(user, profileUpdate);
-      await user.save();
-      await safeSyncWeightGoal(user);
+      user.googleId = googleId;
+      user.authProvider = 'google';
     }
+
+    if (user.status === 'Pending') {
+      user.status = 'Active';
+      user.otp = { otpValue: '', otpExpiry: null, otpSentAt: null };
+    }
+
+    if (!user.name?.trim()) {
+      user.name = req.body.name?.trim() || googleName || user.name;
+    }
+    if (!user.profilePhoto?.trim() && picture) {
+      user.profilePhoto = picture;
+    }
+
+    if (Object.keys(profileUpdate).length) {
+      Object.assign(user, profileUpdate);
+    }
+
+    await user.save();
+    await safeSyncWeightGoal(user);
+
+    const onboardingComplete = isProfileOnboardingComplete(user);
 
     const payload = { _id: user._id, email: user.email };
     const token = generateAccessToken(payload);
@@ -650,9 +840,13 @@ const googleAuth = async (req, res, next) => {
 
     return res.status(200).json({
       success: true,
-      message: 'Google sign-in successful',
+      message: onboardingComplete
+        ? 'Google sign-in successful'
+        : 'Google sign-in successful — complete your profile',
+      isNewUser: false,
+      requiresOnboarding: !onboardingComplete,
       token,
-      data: attachProfilePhotoUrl(req, userObj),
+      data: enrichUserProfileResponse(req, userObj),
     });
   } catch (err) {
     next(err);
@@ -2281,6 +2475,7 @@ module.exports = {
   verifySignupOtp,
   resendSignupOtp,
   googleAuth,
+  googleSignup,
   login,
   forgotPassword,
   resetPassword,
