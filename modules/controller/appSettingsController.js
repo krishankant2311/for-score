@@ -1,5 +1,27 @@
 const { Admin } = require('../model/adminModel');
+const User = require('../model/userModel');
 const AppSettings = require('../model/appSettingsModel');
+
+async function findActiveAppSettingsLean() {
+  return AppSettings.findOne({ status: { $ne: 'Deleted' } })
+    .sort({ createdAt: -1 })
+    .lean();
+}
+
+async function findActiveAppSettingsDoc() {
+  return AppSettings.findOne({ status: { $ne: 'Deleted' } }).sort({ createdAt: -1 });
+}
+
+function shapeContactInfoForUser(settings) {
+  const s = settings && typeof settings === 'object' ? settings : {};
+  return {
+    appName: String(s.appName ?? 'FOUR Score').trim() || 'FOUR Score',
+    supportEmail: String(s.supportEmail ?? '').trim(),
+    contactPhone: String(s.contactPhone ?? '').trim(),
+    email: String(s.supportEmail ?? '').trim(),
+    phone: String(s.contactPhone ?? '').trim(),
+  };
+}
 
 const getValidAdmin = async (token) => {
   const admin_id = token?._id;
@@ -22,9 +44,7 @@ const getAppSettings = async (req, res) => {
       });
     }
 
-    let settings = await AppSettings.findOne({ status: { $ne: 'Deleted' } })
-      .sort({ createdAt: -1 })
-      .lean();
+    let settings = await findActiveAppSettingsLean();
 
     if (!settings) {
       settings = await AppSettings.create({
@@ -70,7 +90,7 @@ const saveAppSettings = async (req, res) => {
       security,
     } = req.body;
 
-    let settings = await AppSettings.findOne({ status: { $ne: 'Deleted' } }).sort({ createdAt: -1 });
+    let settings = await findActiveAppSettingsDoc();
     const isUpdate = !!settings;
 
     if (!settings) {
@@ -122,8 +142,54 @@ const saveAppSettings = async (req, res) => {
   }
 };
 
+// User: contact details saved by admin (Settings → General)
+const getContactInfoForUser = async (req, res) => {
+  try {
+    const token = req.token;
+    const user_id = token?._id;
+
+    const user = await User.findById(user_id);
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    if (user.status === 'Deleted') {
+      return res.status(400).json({
+        success: false,
+        message: 'This account has been deleted',
+      });
+    }
+
+    let settings = await findActiveAppSettingsLean();
+    if (!settings) {
+      settings = {
+        appName: 'FOUR Score',
+        supportEmail: '',
+        contactPhone: '',
+      };
+    }
+
+    return res.json({
+      success: true,
+      message: 'Contact info fetched successfully',
+      result: shapeContactInfoForUser(settings),
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: err.message,
+    });
+  }
+};
+
 module.exports = {
   getAppSettings,
   saveAppSettings,
+  getContactInfoForUser,
 };
 

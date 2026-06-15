@@ -71,6 +71,7 @@ const {
 const {
   getAboutAppForUser,
 } = require('../controller/aboutAppController');
+const { getContactInfoForUser } = require('../controller/appSettingsController');
 const {
   getSocialMediaForUser,
 } = require('../controller/socialMediaController');
@@ -249,6 +250,7 @@ router.get('/terms-condition/:id', upload.none(), verifyAccessToken, getTermsCon
 
 // About App / Social / Quotes (User read-only)
 router.get('/about-app', upload.none(), verifyAccessToken, getAboutAppForUser);
+router.get('/contact-info', upload.none(), verifyAccessToken, getContactInfoForUser);
 router.get('/social-media', upload.none(), verifyAccessToken, getSocialMediaForUser);
 router.get('/quotes', upload.none(), verifyAccessToken, getQuotesForUser);
 
