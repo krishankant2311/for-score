@@ -972,7 +972,7 @@ const forgotPassword = async (req, res, next) => {
     const resetBaseUrl =
       process.env.USER_RESET_PASSWORD_URL ||
       process.env.FRONTEND_RESET_PASSWORD_URL ||
-      'http://localhost:3001/reset-password';
+      'https://for-score-frontend.vercel.app/reset-password';
     const resetLink = `${resetBaseUrl}?token=${encodeURIComponent(resetToken)}`;
 
     const subject = process.env.USER_RESET_EMAIL_SUBJECT || 'Reset your password';
@@ -1632,10 +1632,24 @@ const getActiveUserByIdByAdmin = async (req, res) => {
       });
     }
 
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date(todayStart);
+    todayEnd.setDate(todayEnd.getDate() + 1);
+
+    const sessionsToday = await WorkoutLog.countDocuments({
+      userId: user._id,
+      status: { $ne: 'Deleted' },
+      date: { $gte: todayStart, $lt: todayEnd },
+    });
+
     return res.json({
       success: true,
       message: 'Active user fetched successfully',
-      result: attachProfilePhotoUrl(req, user),
+      result: {
+        ...attachProfilePhotoUrl(req, user),
+        sessionsToday,
+      },
     });
   } catch (err) {
     console.error(err);

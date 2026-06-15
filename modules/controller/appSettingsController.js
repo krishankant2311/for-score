@@ -100,7 +100,16 @@ const saveAppSettings = async (req, res) => {
     if (appName != null && appName !== '') settings.appName = String(appName).trim();
     if (appDescription != null) settings.appDescription = String(appDescription || '').trim();
     if (supportEmail != null) settings.supportEmail = String(supportEmail || '').trim().toLowerCase();
-    if (contactPhone != null) settings.contactPhone = String(contactPhone || '').trim();
+    if (contactPhone != null) {
+      const phone = String(contactPhone || '').trim();
+      if (phone && !/^[0-9+\s().-]+$/.test(phone)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Contact phone may only contain numbers and + ( ) - space',
+        });
+      }
+      settings.contactPhone = phone;
+    }
 
     if (security != null) {
       let securityObj = security;
