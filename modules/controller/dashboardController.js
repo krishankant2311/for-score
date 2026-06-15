@@ -4,6 +4,7 @@ const WorkoutLog = require('../model/workoutLogModel');
 const MealLog = require('../model/mealLogModel');
 const Program = require('../model/programModel');
 const NutritionItem = require('../model/nutritionItemModel');
+const DailyExerciseCompletion = require('../model/dailyExerciseCompletionModel');
 
 const countExercisesInLibrary = (lib) => {
   if (!lib || typeof lib !== 'object') return 0;
@@ -429,6 +430,90 @@ const getAdminDashboard = async (req, res) => {
     const topExercisesThisWeek =
       topExercisesFromLogs && topExercisesFromLogs.length ? topExercisesFromLogs : [];
 
+    const completionDateMatch =
+      from && to ? dateMatch('date', from, to) : {};
+    const topProgramsAgg = await DailyExerciseCompletion.aggregate([
+      { $match: completionDateMatch },
+      {
+        $project: {
+          userId: 1,
+          completionCount: { $size: { $ifNull: ['$completedSlotKeys', []] } },
+        },
+      },
+      { $match: { completionCount: { $gt: 0 } } },
+      { $group: { _id: '$userId', completions: { $sum: '$completionCount' } } },
+      {
+        $lookup: {
+          from: 'users',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'user',
+        },
+      },
+      { $unwind: '$user' },
+      { $match: { 'user.activeProgramId': { $ne: null } } },
+      {
+        $group: {
+          _id: '$user.activeProgramId',
+          completions: { $sum: '$completions' },
+          activeUsers: { $addToSet: '$_id' },
+        },
+      },
+      { $sort: { completions: -1 } },
+      { $limit: 10 },
+      {
+        $lookup: {
+          from: 'programs',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'program',
+        },
+      },
+      { $unwind: { path: '$program', preserveNullAndEmptyArrays: true } },
+      {
+        $project: {
+          _id: 0,
+          programId: '$_id',
+          programName: {
+            $ifNull: ['$program.programName', { $toString: '$_id' }],
+          },
+          completions: 1,
+          activeUsers: { $size: '$activeUsers' },
+        },
+      },
+    ]);
+
+    let topProgramsThisWeek = topProgramsAgg;
+    if (!topProgramsThisWeek.length) {
+      const enrolled = await User.aggregate([
+        { $match: { status: 'Active', activeProgramId: { $ne: null } } },
+        { $group: { _id: '$activeProgramId', activeUsers: { $sum: 1 } } },
+        { $sort: { activeUsers: -1 } },
+        { $limit: 10 },
+        {
+          $lookup: {
+            from: 'programs',
+            localField: '_id',
+            foreignField: '_id',
+            as: 'program',
+          },
+        },
+        { $unwind: { path: '$program', preserveNullAndEmptyArrays: true } },
+        {
+          $project: {
+            _id: 0,
+            programId: '$_id',
+            programName: {
+              $ifNull: ['$program.programName', { $toString: '$_id' }],
+            },
+            completions: '$activeUsers',
+            activeUsers: 1,
+          },
+        },
+      ]);
+      topProgramsThisWeek = enrolled;
+    }
+
     // ---------- Recent activity ----------
     const [recentUsers, recentWorkouts, recentMeals] = await Promise.all([
       User.find({})
@@ -502,6 +587,7 @@ const getAdminDashboard = async (req, res) => {
         tables: {
           topFoodsThisWeek,
           topExercisesThisWeek,
+          topProgramsThisWeek,
         },
         recentActivity: {
           users: recentUsers,

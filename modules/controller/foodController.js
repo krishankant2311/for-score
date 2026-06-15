@@ -29,6 +29,18 @@ const allowedMealTypes = [
   'Other',
 ];
 
+const parseRequiredCalories = (raw) => {
+  if (raw == null || raw === '') return { error: 'calories are required' };
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) {
+    return { error: 'calories must be a valid number' };
+  }
+  if (n > 9999) {
+    return { error: 'calories cannot exceed 9999' };
+  }
+  return { value: Math.round(n) };
+};
+
 /** Rewrite DB `image` (disk path) to a public URL — no extra alias fields. */
 const withFoodImageUrl = (req, food) => {
   if (!food) return food;
@@ -69,7 +81,7 @@ const addFoodByAdmin = async (req, res) => {
       servingSize,
     } = req.body;
 
-    if (!name || !calories) {
+    if (!name || calories == null || calories === '') {
       return res.status(400).json({
         success: false,
         message: 'name and calories are required',
@@ -84,10 +96,18 @@ const addFoodByAdmin = async (req, res) => {
       });
     }
 
+    const caloriesParsed = parseRequiredCalories(calories);
+    if (caloriesParsed.error) {
+      return res.status(400).json({
+        success: false,
+        message: caloriesParsed.error,
+      });
+    }
+
     const food = await Food.create({
       createdByAdminId: admin._id,
       name: name.trim(),
-      calories: Number(calories),
+      calories: caloriesParsed.value,
       protein: protein != null && protein !== '' ? Number(protein) : 0,
       carbs: carbs != null && carbs !== '' ? Number(carbs) : 0,
       fats: fats != null && fats !== '' ? Number(fats) : 0,
@@ -284,8 +304,16 @@ const updateFoodByAdmin = async (req, res) => {
       });
     }
 
+    const caloriesParsed = parseRequiredCalories(calories);
+    if (caloriesParsed.error) {
+      return res.status(400).json({
+        success: false,
+        message: caloriesParsed.error,
+      });
+    }
+
     food.name = trimmedName;
-    food.calories = Number(calories);
+    food.calories = caloriesParsed.value;
     if (protein != null && protein !== '') food.protein = Number(protein);
     if (carbs != null && carbs !== '') food.carbs = Number(carbs);
     if (fats != null && fats !== '') food.fats = Number(fats);

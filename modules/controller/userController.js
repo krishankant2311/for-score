@@ -1,4 +1,5 @@
 const User = require('../model/userModel');
+const WorkoutLog = require('../model/workoutLogModel');
 const { Admin } = require('../model/adminModel');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
@@ -971,7 +972,7 @@ const forgotPassword = async (req, res, next) => {
     const resetBaseUrl =
       process.env.USER_RESET_PASSWORD_URL ||
       process.env.FRONTEND_RESET_PASSWORD_URL ||
-      'http://localhost:3000/reset-password';
+      'http://localhost:3001/reset-password';
     const resetLink = `${resetBaseUrl}?token=${encodeURIComponent(resetToken)}`;
 
     const subject = process.env.USER_RESET_EMAIL_SUBJECT || 'Reset your password';
@@ -1471,12 +1472,38 @@ const getAllActiveUsersByAdmin = async (req, res) => {
 
     const users = await User.find({ status: 'Active' })
       .sort({ createdAt: -1 })
-      .select('-password');
+      .select('-password')
+      .lean();
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date(todayStart);
+    todayEnd.setDate(todayEnd.getDate() + 1);
+
+    const sessionRows = await WorkoutLog.aggregate([
+      {
+        $match: {
+          status: { $ne: 'Deleted' },
+          date: { $gte: todayStart, $lt: todayEnd },
+        },
+      },
+      { $group: { _id: '$userId', sessionsToday: { $sum: 1 } } },
+    ]);
+    const sessionsByUserId = new Map(
+      sessionRows.map((row) => [String(row._id), row.sessionsToday])
+    );
 
     return res.json({
       success: true,
       message: 'Active users fetched successfully',
-      result: users.map((u) => attachProfilePhotoUrl(req, u.toObject())),
+      result: users.map((u) => {
+        const obj = attachProfilePhotoUrl(req, { ...u });
+        const sessionsToday = sessionsByUserId.get(String(u._id));
+        return {
+          ...obj,
+          sessionsToday: typeof sessionsToday === 'number' ? sessionsToday : 0,
+        };
+      }),
     });
   } catch (err) {
     console.error(err);

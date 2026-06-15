@@ -37,11 +37,11 @@ const addFeedback = async (req, res) => {
       });
     }
 
-    const allowedTypes = ['General', 'Bug', 'Feature'];
+    const allowedTypes = ['General', 'Bug', 'Feature', 'Suggestion'];
     if (!allowedTypes.includes(resolvedType)) {
       return res.status(400).json({
         success: false,
-        message: 'feedbackType must be General, Bug or Feature',
+        message: 'feedbackType must be General, Bug, Feature or Suggestion',
       });
     }
 
@@ -181,11 +181,11 @@ const updateMyFeedback = async (req, res) => {
     }
 
     if (resolvedType) {
-      const allowedTypes = ['General', 'Bug', 'Feature'];
+      const allowedTypes = ['General', 'Bug', 'Feature', 'Suggestion'];
       if (!allowedTypes.includes(resolvedType)) {
         return res.status(400).json({
           success: false,
-          message: 'feedbackType must be General, Bug or Feature',
+          message: 'feedbackType must be General, Bug, Feature or Suggestion',
         });
       }
       feedback.type = resolvedType;
@@ -287,13 +287,16 @@ const getAllFeedbackAdmin = async (req, res) => {
     const statusFilter = (req.query.status || 'all').toLowerCase();
 
     const query = {};
-    if (typeFilter && ['General', 'Bug', 'Feature'].includes(typeFilter)) {
+    if (typeFilter && ['General', 'Bug', 'Feature', 'Suggestion'].includes(typeFilter)) {
       query.type = typeFilter;
     }
     if (statusFilter === 'new') query.status = 'New';
     else if (statusFilter === 'inprogress') query.status = 'InProgress';
     else if (statusFilter === 'resolved') query.status = 'Resolved';
     else if (statusFilter === 'deleted') query.status = 'Deleted';
+    else if (statusFilter === 'all' || !req.query.status) {
+      query.status = { $ne: 'Deleted' };
+    }
 
     const feedbacks = await Feedback.find(query)
       .populate('userId', 'name email')
