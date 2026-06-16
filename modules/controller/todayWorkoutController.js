@@ -1112,18 +1112,49 @@ const parseBodySetsArray = (sets) => {
     }
   }
   if (!parsedSets.length) return { error: 'At least one set is required' };
-  const cleaned = parsedSets.map((s, idx) => ({
-    setNumber: Number(s.setNumber ?? s.set ?? idx + 1),
-    weight: Number(s.weight ?? 0),
-    reps: Number(s.reps ?? 0),
-    previousWeight:
-      s.previousWeight != null && s.previousWeight !== '' ? Number(s.previousWeight) : null,
-    previousReps:
-      s.previousReps != null && s.previousReps !== '' ? Number(s.previousReps) : null,
-  }));
-  if (cleaned.some((s) => Number.isNaN(s.weight) || Number.isNaN(s.reps) || Number.isNaN(s.setNumber))) {
-    return { error: 'Each set needs numeric setNumber, weight, reps' };
+  const cleaned = parsedSets.map((s, idx) => {
+    const setNumberRaw = s?.setNumber ?? s?.set ?? idx + 1;
+
+    // Important: blank (null/''/undefined) should trigger validation error.
+    // We should NOT default to 0, otherwise frontend can't show "required" validation.
+    const weightRaw = s?.weight ?? s?.weight_lbs ?? s?.weightLbs;
+    const repsRaw = s?.reps ?? s?.targetReps ?? s?.repsRange ?? s?.target_reps;
+
+    const weightProvided = weightRaw != null && String(weightRaw).trim() !== '';
+    const repsProvided = repsRaw != null && String(repsRaw).trim() !== '';
+
+    const weight = weightProvided ? Number(weightRaw) : null;
+    const reps = repsProvided ? Number(repsRaw) : null;
+
+    return {
+      setNumber: Number(setNumberRaw),
+      weight,
+      reps,
+      previousWeight:
+        s?.previousWeight != null && s.previousWeight !== '' ? Number(s.previousWeight) : null,
+      previousReps:
+        s?.previousReps != null && s.previousReps !== '' ? Number(s.previousReps) : null,
+    };
+  });
+
+  if (cleaned.some((s) => Number.isNaN(s.setNumber) || !Number.isFinite(s.setNumber))) {
+    return { error: 'Each set needs a numeric setNumber' };
   }
+
+  if (
+    cleaned.some(
+      (s) =>
+        s.weight == null ||
+        s.reps == null ||
+        Number.isNaN(s.weight) ||
+        Number.isNaN(s.reps) ||
+        !Number.isFinite(s.weight) ||
+        !Number.isFinite(s.reps)
+    )
+  ) {
+    return { error: 'Weight and reps are required for each set' };
+  }
+
   return { cleaned };
 };
 

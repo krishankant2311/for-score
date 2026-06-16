@@ -948,6 +948,13 @@ const forgotPassword = async (req, res, next) => {
       });
     }
 
+    if (user.status === 'Blocked') {
+      return res.status(403).json({
+        success: false,
+        message: 'Your account is blocked. Please contact support.',
+      });
+    }
+
     if (user.status === 'Pending') {
       return res.status(400).json({
         success: false,
@@ -1064,6 +1071,13 @@ const resetPassword = async (req, res, next) => {
       return res.status(400).json({
         success: false,
         message: 'This account has been deleted',
+      });
+    }
+
+    if (user.status === 'Blocked') {
+      return res.status(403).json({
+        success: false,
+        message: 'Your account is blocked. Please contact support.',
       });
     }
 
