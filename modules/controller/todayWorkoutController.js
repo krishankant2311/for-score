@@ -437,6 +437,29 @@ const parseInstructionsArray = (v) => {
     .filter(Boolean);
 };
 
+const parseOptionalString = (v) => {
+  if (v == null || v === '') return '';
+  return String(v).trim();
+};
+
+/** Tempo, rest, alternative, notes — admin program fields for mobile exercise detail. */
+const buildExerciseCoachingFields = (slot) => {
+  const tempo = slot.tempo || '';
+  const rest = slot.restPerExercise || '';
+  const alternative = slot.alternative || '';
+  const notes = slot.notes || '';
+  return {
+    tempo,
+    rest,
+    rest_per_exercise: rest,
+    restPerExercise: rest,
+    alternative,
+    alternative_exercise: alternative,
+    notes,
+    notes_program: notes,
+  };
+};
+
 /**
  * Reads one exercise from Program.exerciseLibrary (admin-defined).
  * Supports snake_case or camelCase; strings stay minimal.
@@ -460,6 +483,9 @@ const parseExerciseSlotFromProgram = (raw, order, programId) => {
       thumbPath: '',
       mediaType: '',
       notes: '',
+      tempo: '',
+      restPerExercise: '',
+      alternative: '',
     };
   }
 
@@ -524,7 +550,14 @@ const parseExerciseSlotFromProgram = (raw, order, programId) => {
     }
   }
   const mediaType = String(o.media_type ?? o.mediaType ?? '').trim();
-  const notes = o.notes ? String(o.notes) : '';
+  const notes = parseOptionalString(o.notes);
+  const tempo = parseOptionalString(o.tempo);
+  const restPerExercise = parseOptionalString(
+    o.restPerExercise ?? o.rest_per_exercise ?? o.rest ?? o.restPerSet
+  );
+  const alternative = parseOptionalString(
+    o.alternative ?? o.alternative_exercise ?? o.alt
+  );
 
   return {
     order,
@@ -541,6 +574,9 @@ const parseExerciseSlotFromProgram = (raw, order, programId) => {
     thumbPath,
     mediaType,
     notes,
+    tempo,
+    restPerExercise,
+    alternative,
   };
 };
 
@@ -609,7 +645,7 @@ const buildExercisePayloadForUser = (req, slot, { includeInstructions } = {}) =>
       : '',
     listSummaryLine: listLine,
     hasVideo,
-    notes: slot.notes,
+    ...buildExerciseCoachingFields(slot),
   };
 
   if (includeInstructions) {
@@ -1055,7 +1091,7 @@ const buildTodayExerciseDetailScreen = (
       muscles_tags: muscles,
       instructions: slot.instructionsList || [],
       completed,
-      notes_program: slot.notes || '',
+      ...buildExerciseCoachingFields(slot),
     },
     logging: {
       exercise_name_used_in_logs: slot.name.trim(),
