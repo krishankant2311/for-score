@@ -2,6 +2,7 @@ const User = require('../model/userModel');
 const WorkoutLog = require('../model/workoutLogModel');
 const DailyExerciseCompletion = require('../model/dailyExerciseCompletionModel');
 const { toPublicFileUrl } = require('../../utils/publicFileUrl');
+const { isBlockedUser, sendBlockedUserResponse } = require('../../utils/userAccessGuards');
 
 const normalizeDate = (dateInput) => {
   const d = dateInput ? new Date(dateInput) : new Date();
@@ -108,6 +109,10 @@ const getOvalOfficePage = async (req, res) => {
     }
     if (user.status === 'Deleted') {
       return res.status(400).json({ success: false, message: 'User account has been deleted' });
+    }
+
+    if (isBlockedUser(user)) {
+      return sendBlockedUserResponse(res);
     }
 
     const [workoutDayKeys, totalCompletedSets] = await Promise.all([

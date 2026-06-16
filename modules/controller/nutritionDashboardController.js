@@ -10,6 +10,7 @@ const {
   countCompletedScheduledSlots,
 } = require('../../utils/mealLogHelpers');
 const { getDailyCalorieTargetDetails } = require('../../utils/calorieTargetHelpers');
+const { isBlockedUser, sendBlockedUserResponse } = require('../../utils/userAccessGuards');
 
 const normalizeDate = (dateStr) => {
   const d = dateStr ? new Date(dateStr) : new Date();
@@ -38,6 +39,10 @@ const addOrUpdateMealLog = async (req, res) => {
         success: false,
         message: 'User not found',
       });
+    }
+
+    if (isBlockedUser(user)) {
+      return sendBlockedUserResponse(res);
     }
 
     const { date, mealType, items, notes } = req.body;
@@ -158,6 +163,10 @@ const scheduleMealByFoodId = async (req, res) => {
         success: false,
         message: 'User not found',
       });
+    }
+
+    if (isBlockedUser(user)) {
+      return sendBlockedUserResponse(res);
     }
 
     const { date, mealType, foodId, quantity, mealTime, notes } = req.body;

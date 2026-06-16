@@ -16,6 +16,7 @@ const {
   ALLOWED_ACTIVITY_FACTOR_KEYS,
   isProfileOnboardingComplete,
 } = require('../../utils/calorieTargetHelpers');
+const { isBlockedUser, sendBlockedUserResponse } = require('../../utils/userAccessGuards');
 
 // Safe wrapper: dashboard goal sync must never break the profile-save flow.
 // We log the error and continue so the user still sees their profile update.
@@ -1169,6 +1170,10 @@ const updateUserProfile = async (req, res, next) => {
       });
     }
 
+    if (isBlockedUser(user)) {
+      return sendBlockedUserResponse(res);
+    }
+
     if (body.name != null && body.name !== '') {
       user.name = String(body.name).trim();
     }
@@ -1392,6 +1397,10 @@ const changeUserPassword = async (req, res) => {
         success: false,
         message: 'User account has been deleted',
       });
+    }
+
+    if (isBlockedUser(user)) {
+      return sendBlockedUserResponse(res);
     }
 
     if (!oldPassword) {

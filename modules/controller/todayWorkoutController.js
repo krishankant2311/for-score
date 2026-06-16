@@ -3,6 +3,7 @@ const Program = require('../model/programModel');
 const WorkoutLog = require('../model/workoutLogModel');
 const DailyExerciseCompletion = require('../model/dailyExerciseCompletionModel');
 const { toPublicFileUrl } = require('../../utils/publicFileUrl');
+const { isBlockedUser, sendBlockedUserResponse } = require('../../utils/userAccessGuards');
 const { rewriteProgramMediaUrlsForResponse } = require('../../utils/programMediaUrls');
 
 const MON_FIRST_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
@@ -1172,6 +1173,10 @@ const selectActiveProgram = async (req, res) => {
     const user = await User.findById(user_id);
     if (!user) {
       return res.status(400).json({ success: false, message: 'User not found' });
+    }
+
+    if (isBlockedUser(user)) {
+      return sendBlockedUserResponse(res);
     }
 
     const program = await Program.findOne({

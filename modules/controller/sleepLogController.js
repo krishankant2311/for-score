@@ -1,5 +1,6 @@
 const User = require('../model/userModel');
 const SleepLog = require('../model/sleepLogModel');
+const { isBlockedUser, sendBlockedUserResponse } = require('../../utils/userAccessGuards');
 
 const normalizeDate = (dateStr) => {
   const d = dateStr ? new Date(dateStr) : new Date();
@@ -34,6 +35,10 @@ const addOrUpdateSleepLog = async (req, res) => {
         success: false,
         message: 'User not found',
       });
+    }
+
+    if (isBlockedUser(user)) {
+      return sendBlockedUserResponse(res);
     }
 
     const {

@@ -1,6 +1,7 @@
 const { Admin } = require('../model/adminModel');
 const User = require('../model/userModel');
 const Feedback = require('../model/feedbackModel');
+const { isBlockedUser, sendBlockedUserResponse } = require('../../utils/userAccessGuards');
 
 // Helper: validate admin from token
 const getValidAdmin = async (token) => {
@@ -25,6 +26,10 @@ const addFeedback = async (req, res) => {
         success: false,
         message: 'User not found',
       });
+    }
+
+    if (isBlockedUser(user)) {
+      return sendBlockedUserResponse(res);
     }
 
     const { feedbackType, type, email, message } = req.body;

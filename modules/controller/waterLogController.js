@@ -1,4 +1,5 @@
 const WaterLog = require('../model/waterLogModel');
+const { isBlockedUser, sendBlockedUserResponse } = require('../../utils/userAccessGuards');
 const User = require('../model/userModel');
 
 const normalizeDate = (dateStr) => {
@@ -45,6 +46,10 @@ const requireUser = async (req, res) => {
   const user = await User.findById(user_id);
   if (!user) {
     res.status(400).json({ success: false, message: 'User not found' });
+    return null;
+  }
+  if (isBlockedUser(user)) {
+    sendBlockedUserResponse(res);
     return null;
   }
   return user;
