@@ -4,6 +4,13 @@ const WorkoutLog = require('../model/workoutLogModel');
 const DailyExerciseCompletion = require('../model/dailyExerciseCompletionModel');
 const { toPublicFileUrl } = require('../../utils/publicFileUrl');
 const { isBlockedUser, sendBlockedUserResponse } = require('../../utils/userAccessGuards');
+const {
+  parseMusclesFromExerciseFields,
+  sanitizeMusclesList,
+  buildMusclesDisplayLine,
+  resolveExerciseDifficultyLevel,
+  resolveProgramSkillLevel,
+} = require('../../utils/exerciseDisplayHelpers');
 const { rewriteProgramMediaUrlsForResponse } = require('../../utils/programMediaUrls');
 
 const MON_FIRST_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
@@ -465,7 +472,7 @@ const buildExerciseCoachingFields = (slot) => {
  * Reads one exercise from Program.exerciseLibrary (admin-defined).
  * Supports snake_case or camelCase; strings stay minimal.
  */
-const parseExerciseSlotFromProgram = (raw, order, programId) => {
+const parseExerciseSlotFromProgram = (raw, order, programId, program = null) => {
   if (typeof raw === 'string') {
     const name = raw.trim() || 'Exercise';
     const slotKey = slugKey(name) || `p_${programId}_order_${order}`;
@@ -524,12 +531,9 @@ const parseExerciseSlotFromProgram = (raw, order, programId) => {
     o.kcal
   );
 
-  const difficultyLevel =
-    String(o.difficulty_level ?? o.difficultyLevel ?? o.difficulty ?? '').trim() || null;
+  const difficultyLevel = resolveExerciseDifficultyLevel(o, program);
 
-  const muscles = parseMusclesArray(
-    o.target_muscles ?? o.targetMuscles ?? o.muscles_involved ?? o.muscles
-  );
+  const muscles = sanitizeMusclesList(parseMusclesFromExerciseFields(o));
 
   const instructionsList = parseInstructionsArray(o.instructions);
 
@@ -581,13 +585,13 @@ const parseExerciseSlotFromProgram = (raw, order, programId) => {
   };
 };
 
-const normalizeExerciseListFromProgram = (rawList, programId) => {
+const normalizeExerciseListFromProgram = (rawList, programId, program = null) => {
   if (!rawList) return [];
   const arr = Array.isArray(rawList) ? rawList : [rawList];
   return arr.map((item, idx) => {
     const ord =
       item?.order != null && !Number.isNaN(Number(item.order)) ? Number(item.order) : idx + 1;
-    return parseExerciseSlotFromProgram(item, ord, programId);
+    return parseExerciseSlotFromProgram(item, ord, programId, program);
   });
 };
 
@@ -617,6 +621,9 @@ const buildExercisePayloadForUser = (req, slot, { includeInstructions } = {}) =>
       /\.(mp4|mov|webm|m4v)(\?.*)?$/i.test(slot.videoPath));
 
   const listLine = formatWorkoutListSubtitle(slot);
+  const muscles = Array.isArray(slot.muscles) ? slot.muscles : [];
+  const musclesLine = buildMusclesDisplayLine(muscles);
+  const level = slot.difficultyLevel || null;
 
   const base = {
     id: slot.slotKey,
@@ -631,19 +638,21 @@ const buildExercisePayloadForUser = (req, slot, { includeInstructions } = {}) =>
     target_reps_range: slot.repRangeStr,
     estimated_time_minutes: slot.durationMin,
     estimated_calories: slot.caloriesEstimate,
-    difficulty_level: slot.difficultyLevel,
     targetSets: slot.targetSets,
     targetRepsRange: slot.repRangeStr,
     estimatedTimeMinutes: slot.durationMin,
     estimatedCalories: slot.caloriesEstimate,
-    difficultyLevel: slot.difficultyLevel,
-    muscles_involved: slot.muscles,
-    musclesInvolved: slot.muscles,
-    target_muscles: slot.muscles,
-    targetMuscles: slot.muscles,
-    target_muscles_text: Array.isArray(slot.muscles) && slot.muscles.length
-      ? slot.muscles.join(', ')
-      : '',
+    difficulty: level,
+    difficulty_level: level,
+    difficultyLevel: level,
+    level,
+    workout_skill_level: level,
+    muscles_involved: muscles,
+    musclesInvolved: muscles,
+    target_muscles: muscles,
+    targetMuscles: muscles,
+    target_muscles_text: musclesLine,
+    target_muscles_line: musclesLine,
     listSummaryLine: listLine,
     hasVideo,
     ...buildExerciseCoachingFields(slot),
@@ -671,6 +680,8 @@ const buildTodayWorkoutListItem = (req, slot, completed) => {
     reps_range: slot.repRangeStr,
     duration_minutes: slot.durationMin,
     difficulty: slot.difficultyLevel,
+    level: slot.difficultyLevel,
+    workout_skill_level: slot.difficultyLevel,
     subtitle: formatWorkoutListSubtitle(slot),
     completed,
   };
@@ -824,7 +835,7 @@ const resolveTodaysExerciseSlots = (program, programStartedAt, refDate, programI
     }
   }
 
-  let slots = normalizeExerciseListFromProgram(listRaw, programIdStr);
+  let slots = normalizeExerciseListFromProgram(listRaw, programIdStr, program);
   let resolutionStrategy = inferred.strategy;
 
   if (!slots.length && Array.isArray(inferred.scheduleToken) === false && inferred.scheduleToken) {
@@ -1030,6 +1041,8 @@ const buildTodayExerciseDetailScreen = (
   const videoUrl = slot.videoPath ? toPublicFileUrl(req, slot.videoPath) : '';
   const thumbUrl = slot.thumbPath ? toPublicFileUrl(req, slot.thumbPath) : videoUrl;
   const muscles = Array.isArray(slot.muscles) ? slot.muscles : [];
+  const musclesLine = buildMusclesDisplayLine(muscles);
+  const level = slot.difficultyLevel || null;
 
   let todayLogPayload = null;
   if (todaySessionLog?._id) {
@@ -1077,6 +1090,8 @@ const buildTodayExerciseDetailScreen = (
       day_key: dayKey,
       slot_label: inferred.scheduleToken,
     },
+    workout_skill_level: resolveProgramSkillLevel(program),
+    level: resolveProgramSkillLevel(program),
     slot_key: slot.slotKey,
     exercise: {
       name: slot.name,
@@ -1086,8 +1101,12 @@ const buildTodayExerciseDetailScreen = (
       reps_range: slot.repRangeStr,
       time_minutes: slot.durationMin,
       estimated_calories: slot.caloriesEstimate,
-      difficulty: slot.difficultyLevel,
-      target_muscles_line: muscles.length ? muscles.join(', ') : '',
+      difficulty: level,
+      difficulty_level: level,
+      level,
+      workout_skill_level: level,
+      target_muscles_line: musclesLine,
+      target_muscles_text: musclesLine,
       target_muscles: muscles,
       muscles_tags: muscles,
       instructions: slot.instructionsList || [],
@@ -1319,7 +1338,7 @@ const resolveSlotsForScheduleToken = (program, programIdStr, scheduleToken, dayK
       null;
   }
 
-  const slots = normalizeExerciseListFromProgram(listRaw, programIdStr);
+  const slots = normalizeExerciseListFromProgram(listRaw, programIdStr, program);
   return {
     dayType,
     slots,
@@ -1346,7 +1365,7 @@ const collectWorkoutModulesFromProgram = (req, program, programIdStr) => {
     const moduleKey = String(key || '').trim();
     if (!moduleKey || !isExerciseArray(rawList)) return;
 
-    const slots = normalizeExerciseListFromProgram(rawList, programIdStr);
+    const slots = normalizeExerciseListFromProgram(rawList, programIdStr, program);
     if (!slots.length) return;
 
     const signature = slots.map((s) => s.slotKey).join('|');
@@ -1695,6 +1714,8 @@ const getTodayWorkout = async (req, res) => {
       day_type: dayType,
       is_rest_day: dayType === 'rest',
       is_recovery_day: dayType === 'recovery',
+      workout_skill_level: resolveProgramSkillLevel(program),
+      level: resolveProgramSkillLevel(program),
       summary: {
         total_exercises: exerciseCount,
         completed_exercises: completedCount,

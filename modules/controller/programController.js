@@ -10,6 +10,7 @@ const {
   rewriteProgramMediaUrlsForResponse,
   stripBlobMediaUrls,
 } = require('../../utils/programMediaUrls');
+const { sanitizeExerciseLibrary } = require('../../utils/exerciseDisplayHelpers');
 
 // ---- Helpers ----------------------------------------------------------------
 
@@ -291,6 +292,7 @@ const buildProgramDocFromBody = (req) => {
     mergeLibraryMediaUploads(req, doc.exerciseLibrary);
     stripBlobMediaUrls(doc.exerciseLibrary);
     syncExerciseLibraryWorkoutAliases(doc.exerciseLibrary);
+    sanitizeExerciseLibrary(doc.exerciseLibrary, doc.workoutSkillLevel);
   }
   if (doc.workoutsMeta && typeof doc.workoutsMeta === 'object') {
     mergeWorkoutMetaMediaUploads(req, doc.workoutsMeta);

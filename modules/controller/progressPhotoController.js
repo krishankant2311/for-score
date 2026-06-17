@@ -1,13 +1,22 @@
 const User = require('../model/userModel');
 const ProgressPhoto = require('../model/progressPhotoModel');
+const { PROGRESS_PHOTO_MAX_COUNT } = require('../../middleware/multer');
 
 const normalizeDate = (dateStr) => {
   const d = dateStr ? new Date(dateStr) : new Date();
+  if (Number.isNaN(d.getTime())) return null;
   d.setHours(0, 0, 0, 0);
   return d;
 };
 
-// 1. Upload progress photo
+const collectUploadedPhotoFiles = (req) => {
+  const bucket = req.files && typeof req.files === 'object' ? req.files : {};
+  const fromPhoto = Array.isArray(bucket.photo) ? bucket.photo : req.file ? [req.file] : [];
+  const fromPhotos = Array.isArray(bucket.photos) ? bucket.photos : [];
+  return [...fromPhoto, ...fromPhotos];
+};
+
+// 1. Upload one or more progress photos (max 12 per request)
 const addProgressPhoto = async (req, res) => {
   try {
     const token = req.token;
@@ -21,36 +30,67 @@ const addProgressPhoto = async (req, res) => {
       });
     }
 
-    if (!req.file) {
+    const files = collectUploadedPhotoFiles(req);
+    if (!files.length) {
       return res.status(400).json({
         success: false,
-        message: 'Photo file is required',
+        message: 'At least one photo file is required.',
       });
     }
 
-    const { pose, takenDate, caption } = req.body;
+    if (files.length > PROGRESS_PHOTO_MAX_COUNT) {
+      return res.status(400).json({
+        success: false,
+        message: `You can upload up to ${PROGRESS_PHOTO_MAX_COUNT} photos at a time.`,
+      });
+    }
+
+    const { pose, takenDate, caption } = req.body || {};
     const allowedPoses = ['Front', 'Side', 'Back', 'Other'];
     const poseVal = pose && allowedPoses.includes(pose) ? pose : 'Other';
     const dateVal = normalizeDate(takenDate);
+    if (!dateVal) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid takenDate. Use a valid date (YYYY-MM-DD).',
+      });
+    }
 
-    const photo = await ProgressPhoto.create({
-      userId: user_id,
-      filePath: req.file.path,
-      pose: poseVal,
-      takenDate: dateVal,
-      caption: (caption || '').trim(),
-    });
+    const captionVal = (caption || '').trim();
+    const created = [];
+
+    for (const file of files) {
+      const photo = await ProgressPhoto.create({
+        userId: user_id,
+        filePath: file.path,
+        pose: poseVal,
+        takenDate: dateVal,
+        caption: captionVal,
+      });
+      created.push(photo);
+    }
+
+    const message =
+      created.length === 1
+        ? 'Progress photo uploaded successfully'
+        : `${created.length} progress photos uploaded successfully`;
 
     return res.json({
       success: true,
-      message: 'Progress photo uploaded successfully',
-      result: photo,
+      message,
+      result:
+        created.length === 1
+          ? created[0]
+          : {
+              uploaded_count: created.length,
+              photos: created,
+            },
     });
   } catch (err) {
     console.error(err);
     return res.status(500).json({
       success: false,
-      message: 'Internal server error',
+      message: 'Could not upload progress photos. Please try again.',
       error: err.message,
     });
   }
@@ -70,7 +110,7 @@ const getLatestProgressPhotos = async (req, res) => {
       });
     }
 
-    const limit = Math.min(12, Math.max(1, parseInt(req.query.limit) || 6));
+    const limit = Math.min(PROGRESS_PHOTO_MAX_COUNT, Math.max(1, parseInt(req.query.limit, 10) || 6));
 
     const photos = await ProgressPhoto.find({
       userId: user_id,
@@ -240,4 +280,3 @@ module.exports = {
   getProgressPhotoById,
   deleteProgressPhoto,
 };
-

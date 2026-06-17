@@ -120,6 +120,25 @@ const addOrUpdateMealLog = async (req, res) => {
       status: { $ne: 'Deleted' },
     });
 
+    const newMealCalories = sumItemsCalories(cleanedItems);
+    const projectedTotal = await getProjectedDailyCalories({
+      userId: user_id,
+      normalizedDate,
+      replaceLogId: log?._id || null,
+      replacementCalories: newMealCalories,
+    });
+    if (
+      await rejectIfDailyCalorieLimitExceeded({
+        res,
+        user,
+        userId: user_id,
+        normalizedDate,
+        projectedTotalCalories: projectedTotal,
+      })
+    ) {
+      return;
+    }
+
     if (!log) {
       log = await MealLog.create({
         userId: user_id,
@@ -214,6 +233,23 @@ const scheduleMealByFoodId = async (req, res) => {
       status: { $ne: 'Deleted' },
     });
 
+    const projectedTotal = await getProjectedDailyCalories({
+      userId: user_id,
+      normalizedDate,
+      addCalories: item.calories,
+    });
+    if (
+      await rejectIfDailyCalorieLimitExceeded({
+        res,
+        user,
+        userId: user_id,
+        normalizedDate,
+        projectedTotalCalories: projectedTotal,
+      })
+    ) {
+      return;
+    }
+
     if (!log) {
       log = await MealLog.create({
         userId: user_id,
@@ -264,6 +300,67 @@ const aggregateDailyMacros = (logs) => {
   });
 
   return { calories, protein, carbs, fats };
+};
+
+const sumMealLogCalories = (log) =>
+  (log?.items || []).reduce((sum, it) => sum + (Number(it.calories) || 0), 0);
+
+const sumItemsCalories = (items) =>
+  (items || []).reduce((sum, it) => sum + (Number(it.calories) || 0), 0);
+
+const getUserDailyCalorieTarget = (user) =>
+  Math.round(Number(getDailyCalorieTargetDetails(user).target) || 0);
+
+/** Reject save when projected day total would exceed the user's daily calorie target. */
+const rejectIfDailyCalorieLimitExceeded = async ({
+  res,
+  user,
+  userId,
+  normalizedDate,
+  projectedTotalCalories,
+}) => {
+  const target = getUserDailyCalorieTarget(user);
+  if (target <= 0) return false;
+
+  const projected = Math.round(Number(projectedTotalCalories) || 0);
+  if (projected <= target) return false;
+
+  res.status(400).json({
+    success: false,
+    message: `Daily calorie limit exceeded. You cannot log more than ${target} calories per day.`,
+    result: {
+      target,
+      projected,
+      over_by: projected - target,
+    },
+  });
+  return true;
+};
+
+const getProjectedDailyCalories = async ({
+  userId,
+  normalizedDate,
+  excludeLogId = null,
+  addCalories = 0,
+  replaceLogId = null,
+  replacementCalories = 0,
+}) => {
+  const logs = await MealLog.find({
+    userId,
+    date: normalizedDate,
+    status: { $ne: 'Deleted' },
+  }).lean();
+
+  let total = 0;
+  for (const log of logs) {
+    if (excludeLogId && String(log._id) === String(excludeLogId)) continue;
+    if (replaceLogId && String(log._id) === String(replaceLogId)) {
+      total += replacementCalories;
+      continue;
+    }
+    total += sumMealLogCalories(log);
+  }
+  return total + addCalories;
 };
 
 const safePercent = (val, target) =>

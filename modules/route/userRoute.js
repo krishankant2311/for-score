@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const upload = require('../../middleware/multer');
+const { handleMulterProgressPhotoUpload } = require('../../middleware/multer');
 const { verifyAccessToken } = require('../../middleware/jwt');
 const {
   signup,
@@ -331,7 +332,7 @@ router.get('/workouts/:id', upload.none(), verifyAccessToken, getWorkoutLogById)
 router.post('/workouts/:id/delete', upload.none(), verifyAccessToken, deleteWorkoutLog);
 
 // Progress Photos (Mission Log)
-router.post('/progress-photos', upload.single('photo'), verifyAccessToken, addProgressPhoto);
+router.post('/progress-photos', handleMulterProgressPhotoUpload, verifyAccessToken, addProgressPhoto);
 router.get('/progress-photos/latest', upload.none(), verifyAccessToken, getLatestProgressPhotos);
 router.get('/progress-photos/timeline', upload.none(), verifyAccessToken, getProgressPhotoTimeline);
 router.get('/progress-photos/:id', upload.none(), verifyAccessToken, getProgressPhotoById);
