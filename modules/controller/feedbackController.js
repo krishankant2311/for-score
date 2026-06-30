@@ -3,6 +3,20 @@ const User = require('../model/userModel');
 const Feedback = require('../model/feedbackModel');
 const { isBlockedUser, sendBlockedUserResponse } = require('../../utils/userAccessGuards');
 
+const FEEDBACK_TYPES = ['General', 'Bug', 'Feature', 'Suggestion'];
+
+const normalizeFeedbackType = (raw) => {
+  if (raw == null || raw === '') return null;
+  const value = String(raw).trim();
+  const low = value.toLowerCase().replace(/\s+/g, ' ');
+  if (low === 'general') return 'General';
+  if (low === 'bug') return 'Bug';
+  if (low === 'feature' || low === 'feature request') return 'Feature';
+  if (low === 'suggestion' || low === 'suggestions') return 'Suggestion';
+  if (FEEDBACK_TYPES.includes(value)) return value;
+  return null;
+};
+
 // Helper: validate admin from token
 const getValidAdmin = async (token) => {
   const admin_id = token?._id;
@@ -33,7 +47,7 @@ const addFeedback = async (req, res) => {
     }
 
     const { feedbackType, type, email, message } = req.body;
-    const resolvedType = feedbackType || type;
+    const resolvedType = normalizeFeedbackType(feedbackType || type);
 
     if (!resolvedType || !message) {
       return res.status(400).json({
@@ -42,8 +56,7 @@ const addFeedback = async (req, res) => {
       });
     }
 
-    const allowedTypes = ['General', 'Bug', 'Feature', 'Suggestion'];
-    if (!allowedTypes.includes(resolvedType)) {
+    if (!FEEDBACK_TYPES.includes(resolvedType)) {
       return res.status(400).json({
         success: false,
         message: 'feedbackType must be General, Bug, Feature or Suggestion',
@@ -186,14 +199,14 @@ const updateMyFeedback = async (req, res) => {
     }
 
     if (resolvedType) {
-      const allowedTypes = ['General', 'Bug', 'Feature', 'Suggestion'];
-      if (!allowedTypes.includes(resolvedType)) {
+      const normalizedType = normalizeFeedbackType(resolvedType);
+      if (!normalizedType || !FEEDBACK_TYPES.includes(normalizedType)) {
         return res.status(400).json({
           success: false,
           message: 'feedbackType must be General, Bug, Feature or Suggestion',
         });
       }
-      feedback.type = resolvedType;
+      feedback.type = normalizedType;
     }
 
     if (email != null) {
@@ -288,12 +301,15 @@ const getAllFeedbackAdmin = async (req, res) => {
       });
     }
 
-    const typeFilter = req.query.type;
+    const typeFilter = normalizeFeedbackType(req.query.type);
     const statusFilter = (req.query.status || 'all').toLowerCase();
 
     const query = {};
-    if (typeFilter && ['General', 'Bug', 'Feature', 'Suggestion'].includes(typeFilter)) {
-      query.type = typeFilter;
+    if (typeFilter && FEEDBACK_TYPES.includes(typeFilter)) {
+      query.type = new RegExp(
+        `^${typeFilter.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`,
+        'i'
+      );
     }
     if (statusFilter === 'new') query.status = 'New';
     else if (statusFilter === 'inprogress') query.status = 'InProgress';

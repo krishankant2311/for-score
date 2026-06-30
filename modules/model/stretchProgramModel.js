@@ -1,5 +1,16 @@
 const mongoose = require('mongoose');
 
+const stretchMovementSchema = new mongoose.Schema(
+  {
+    sequenceOrder: { type: Number, required: true, min: 1 },
+    sequenceLabel: { type: String, default: '', trim: true },
+    movementName: { type: String, required: true, trim: true },
+    targetArea: { type: String, default: '', trim: true },
+    timeLabel: { type: String, default: '', trim: true },
+  },
+  { _id: false }
+);
+
 const stretchProgramSchema = new mongoose.Schema(
   {
     title: {
@@ -12,10 +23,20 @@ const stretchProgramSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    intro: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    category: {
+      type: String,
+      default: 'Recover',
+      trim: true,
+    },
     level: {
       type: String,
       enum: ['Beginner', 'Intermediate', 'All Levels'],
-      default: 'Beginner',
+      default: 'All Levels',
     },
     durationMinutes: {
       type: Number,
@@ -26,6 +47,10 @@ const stretchProgramSchema = new mongoose.Schema(
       type: Number,
       required: true,
       min: 1,
+    },
+    movements: {
+      type: [stretchMovementSchema],
+      default: [],
     },
     iconKey: {
       type: String,
@@ -44,6 +69,11 @@ const stretchProgramSchema = new mongoose.Schema(
       type: String,
       enum: ['Active', 'Draft', 'Deleted'],
       default: 'Active',
+    },
+    seedSource: {
+      type: String,
+      default: '',
+      trim: true,
     },
   },
   { timestamps: true }

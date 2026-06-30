@@ -167,6 +167,7 @@ const {
   getSleepTrackingPageData,
 } = require('../controller/recoveryDashboardController');
 const {
+  getAllStretchProgramsForUser,
   getStretchProgramsPage,
   getStretchProgramByIdForUser,
   logStretchSession,
@@ -389,6 +390,7 @@ router.get('/account/page', upload.none(), verifyAccessToken, getOvalOfficePage)
 
 // Stretch Programs page (mobile)
 router.get('/stretch-programs/page', upload.none(), verifyAccessToken, getStretchProgramsPage);
+router.get('/stretch-programs', upload.none(), verifyAccessToken, getAllStretchProgramsForUser);
 router.get('/stretch-programs/:id', upload.none(), verifyAccessToken, getStretchProgramByIdForUser);
 router.post('/stretch-sessions', upload.none(), verifyAccessToken, logStretchSession);
 

@@ -133,6 +133,13 @@ const {
   updateNutritionCheatSheetItem,
   deleteNutritionCheatSheetItem,
 } = require('../controller/nutritionCheatSheetController');
+const {
+  addStretchProgram,
+  getAllStretchProgramsAdmin,
+  getStretchProgramByIdAdmin,
+  updateStretchProgram,
+  deleteStretchProgram,
+} = require('../controller/stretchProgramAdminController');
 
 router.post('/login', upload.none(), adminLogin);
 router.post('/logout', upload.none(), verifyAccessToken, logoutAdmin);
@@ -278,5 +285,12 @@ router.post('/nutrition-cheat-sheet', upload.none(), verifyAccessToken, addNutri
 router.get('/nutrition-cheat-sheet', upload.none(), verifyAccessToken, getAllNutritionCheatSheetAdmin);
 router.get('/nutrition-cheat-sheet/:id', upload.none(), verifyAccessToken, getNutritionCheatSheetByIdAdmin);
 router.post('/nutrition-cheat-sheet/:id', upload.none(), verifyAccessToken, updateNutritionCheatSheetItem);
+
+// Stretch Programs (admin CRUD)
+router.post('/stretch-programs', upload.none(), verifyAccessToken, addStretchProgram);
+router.get('/stretch-programs', upload.none(), verifyAccessToken, getAllStretchProgramsAdmin);
+router.get('/stretch-programs/:id', upload.none(), verifyAccessToken, getStretchProgramByIdAdmin);
+router.post('/stretch-programs/:id', upload.none(), verifyAccessToken, updateStretchProgram);
+router.post('/delete-stretch-programs/:id', upload.none(), verifyAccessToken, deleteStretchProgram);
 
 module.exports = router;

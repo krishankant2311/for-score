@@ -167,13 +167,154 @@ const getValidUser = async (token) => {
   return user;
 };
 
+const normalizeDeliveryMode = (raw) => {
+  const v = String(raw ?? 'now').trim().toLowerCase();
+  if (['draft', 'save_draft', 'save-draft'].includes(v)) return 'draft';
+  if (['schedule', 'scheduled'].includes(v)) return 'schedule';
+  return 'now';
+};
+
+const normalizeRecipientMode = (raw) => {
+  const v = String(raw ?? '').trim().toLowerCase();
+  if (v === 'all') return 'all';
+  if (v === 'active') return 'active';
+  if (v === 'custom') return 'custom';
+  return 'custom';
+};
+
+const parseScheduledAt = (raw) => {
+  if (raw == null || raw === '') return null;
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return null;
+  return d;
+};
+
+const resolveRecipients = async ({ sendToAll, playerIds, userIds: mongoUserIdsBody }) => {
+  const toAll = toBool(sendToAll);
+  const rawPlayerIds = normalizePlayerIds(playerIds);
+  const { mongoUserIds: mongoFromPlayerField, oneSignalIds: directOneSignalIds } =
+    splitRecipientIds(rawPlayerIds);
+  const allMongoUserIds = [
+    ...new Set([...normalizeMongoUserIds(mongoUserIdsBody), ...mongoFromPlayerField]),
+  ];
+  const idsFromUsers = await resolvePlayerIdsFromMongoUserIds(allMongoUserIds);
+  const ids = [...new Set([...directOneSignalIds, ...idsFromUsers])];
+  const targetUserIds = toAll ? [] : dedupeMongoUserIds(allMongoUserIds);
+  return { toAll, allMongoUserIds, ids, targetUserIds };
+};
+
+const deliverNotificationPush = async ({
+  title,
+  message,
+  data,
+  toAll,
+  allMongoUserIds,
+  ids,
+}) => {
+  let onesignalResp = null;
+  let deliveryOk = false;
+  let deliveryError = null;
+
+  try {
+    onesignalResp = await sendOneSignalNotification({
+      title: title.trim(),
+      message: message.trim(),
+      data: data && typeof data === 'object' ? data : {},
+      playerIds: ids,
+      sendToAll: toAll,
+    });
+    deliveryOk = isOneSignalDeliveryOk(onesignalResp);
+    deliveryError = deliveryOk ? null : getOneSignalDeliveryError(onesignalResp);
+  } catch (pushErr) {
+    deliveryError = pushErr?.message || 'Failed to send push notification';
+    onesignalResp = pushErr?.response || null;
+    if (pushErr?.code === 'ONESIGNAL_ENV_MISSING') {
+      deliveryError =
+        'Push notifications are not configured on the server (ONESIGNAL_APP_ID / ONESIGNAL_REST_API_KEY).';
+    }
+  }
+
+  const invalidIds = collectInvalidIds(onesignalResp?.errors);
+  if (invalidIds.length) {
+    await pruneInvalidSubscriptionIds(allMongoUserIds, invalidIds);
+  }
+  const invalidSet = new Set(invalidIds.map(String));
+  const sentPlayerIds = toAll ? [] : ids.filter((id) => !invalidSet.has(String(id)));
+
+  return { onesignalResp, deliveryOk, deliveryError, sentPlayerIds };
+};
+
+const deliverStoredNotification = async (doc) => {
+  const toAll = doc.target === 'All';
+  const allMongoUserIds = (doc.userIds || []).map((id) => String(id));
+  const idsFromUsers = await resolvePlayerIdsFromMongoUserIds(allMongoUserIds);
+  const ids = [...new Set(idsFromUsers)];
+
+  if (!toAll && allMongoUserIds.length && !idsFromUsers.length) {
+    return {
+      deliveryOk: false,
+      deliveryError:
+        'Selected user(s) have no OneSignal subscription id. Ask them to open the app and allow notifications.',
+      onesignalResp: null,
+      sentPlayerIds: [],
+    };
+  }
+
+  if (!toAll && !ids.length) {
+    return {
+      deliveryOk: false,
+      deliveryError:
+        'No recipients with a saved push subscription. Configure sendToAll or valid userIds.',
+      onesignalResp: null,
+      sentPlayerIds: [],
+    };
+  }
+
+  return deliverNotificationPush({
+    title: doc.title,
+    message: doc.message,
+    data: doc.data,
+    toAll,
+    allMongoUserIds,
+    ids,
+  });
+};
+
+const processDueScheduledNotifications = async () => {
+  const due = await Notification.find({
+    status: 'Scheduled',
+    scheduledAt: { $lte: new Date() },
+  })
+    .sort({ scheduledAt: 1 })
+    .limit(25);
+
+  for (const doc of due) {
+    const { onesignalResp, deliveryOk, deliveryError, sentPlayerIds } =
+      await deliverStoredNotification(doc);
+
+    await Notification.findByIdAndUpdate(doc._id, {
+      $set: {
+        status: deliveryOk ? 'Sent' : 'Failed',
+        error: deliveryError || '',
+        'onesignal.notificationId': onesignalResp?.id || '',
+        'onesignal.playerIds': doc.target === 'All' ? [] : deliveryOk ? sentPlayerIds : [],
+        'onesignal.deliveryMethod': onesignalResp?._deliveryMethod || '',
+        'onesignal.raw': onesignalResp || {},
+      },
+    });
+  }
+};
+
 // ---------------- Admin ----------------
 
 // POST /api/admin/send-notification
 // Body:
 // - title (required)
 // - message (required)
-// - sendToAll (boolean) OR playerIds (array of OneSignal player_id)
+// - sendToAll (boolean) OR playerIds / userIds
+// - deliveryMode: now | schedule | draft (default now)
+// - scheduledAt (required when deliveryMode=schedule)
+// - type, recipientMode (optional)
 // - data (object, optional)
 const sendNotificationByAdmin = async (req, res) => {
   try {
@@ -185,8 +326,19 @@ const sendNotificationByAdmin = async (req, res) => {
       });
     }
 
-    const { title, message, sendToAll, playerIds, userIds: mongoUserIdsBody, data } =
-      req.body;
+    const {
+      title,
+      message,
+      sendToAll,
+      playerIds,
+      userIds: mongoUserIdsBody,
+      data,
+      deliveryMode: deliveryModeBody,
+      action,
+      scheduledAt: scheduledAtBody,
+      type,
+      recipientMode: recipientModeBody,
+    } = req.body;
 
     if (!title?.trim() || !message?.trim()) {
       return res.status(400).json({
@@ -195,20 +347,89 @@ const sendNotificationByAdmin = async (req, res) => {
       });
     }
 
-    const toAll = toBool(sendToAll);
-    const rawPlayerIds = normalizePlayerIds(playerIds);
-    const { mongoUserIds: mongoFromPlayerField, oneSignalIds: directOneSignalIds } =
-      splitRecipientIds(rawPlayerIds);
-    const allMongoUserIds = [
-      ...new Set([
-        ...normalizeMongoUserIds(mongoUserIdsBody),
-        ...mongoFromPlayerField,
-      ]),
-    ];
-    const idsFromUsers = await resolvePlayerIdsFromMongoUserIds(allMongoUserIds);
-    const ids = [...new Set([...directOneSignalIds, ...idsFromUsers])];
+    const deliveryMode = normalizeDeliveryMode(deliveryModeBody ?? action);
+    const recipientMode = normalizeRecipientMode(recipientModeBody);
+    const notificationType = String(type ?? 'General').trim() || 'General';
 
-    if (!toAll && allMongoUserIds.length && !idsFromUsers.length) {
+    const { toAll, allMongoUserIds, ids, targetUserIds } = await resolveRecipients({
+      sendToAll,
+      playerIds,
+      userIds: mongoUserIdsBody,
+    });
+
+    if (!toAll && !targetUserIds.length && !ids.length) {
+      return res.status(400).json({
+        success: false,
+        message: 'sendToAll=true or at least one userId / playerId is required',
+      });
+    }
+
+    const baseDoc = {
+      title: title.trim(),
+      message: message.trim(),
+      data: data && typeof data === 'object' ? data : {},
+      target: toAll ? 'All' : 'Users',
+      userIds: targetUserIds,
+      type: notificationType,
+      recipientMode,
+      createdByAdminId: admin._id,
+    };
+
+    if (deliveryMode === 'draft') {
+      const doc = await Notification.create({
+        ...baseDoc,
+        status: 'Draft',
+        scheduledAt: null,
+        error: '',
+        onesignal: {
+          notificationId: '',
+          playerIds: [],
+          deliveryMethod: '',
+          raw: {},
+        },
+      });
+      return res.json({
+        success: true,
+        message: 'Notification saved as draft',
+        result: doc,
+      });
+    }
+
+    if (deliveryMode === 'schedule') {
+      const scheduledAt = parseScheduledAt(scheduledAtBody);
+      if (!scheduledAt) {
+        return res.status(400).json({
+          success: false,
+          message: 'scheduledAt is required for scheduled notifications',
+        });
+      }
+      if (scheduledAt.getTime() <= Date.now()) {
+        return res.status(400).json({
+          success: false,
+          message: 'scheduledAt must be a future date and time',
+        });
+      }
+
+      const doc = await Notification.create({
+        ...baseDoc,
+        status: 'Scheduled',
+        scheduledAt,
+        error: '',
+        onesignal: {
+          notificationId: '',
+          playerIds: [],
+          deliveryMethod: '',
+          raw: {},
+        },
+      });
+      return res.json({
+        success: true,
+        message: 'Notification scheduled successfully',
+        result: doc,
+      });
+    }
+
+    if (!toAll && allMongoUserIds.length && !ids.length) {
       return res.status(400).json({
         success: false,
         message:
@@ -225,43 +446,19 @@ const sendNotificationByAdmin = async (req, res) => {
       });
     }
 
-    let onesignalResp = null;
-    let deliveryOk = false;
-    let deliveryError = null;
-
-    try {
-      onesignalResp = await sendOneSignalNotification({
-        title: title.trim(),
-        message: message.trim(),
-        data: data && typeof data === 'object' ? data : {},
-        playerIds: ids,
-        sendToAll: toAll,
+    const { onesignalResp, deliveryOk, deliveryError, sentPlayerIds } =
+      await deliverNotificationPush({
+        title,
+        message,
+        data,
+        toAll,
+        allMongoUserIds,
+        ids,
       });
-      deliveryOk = isOneSignalDeliveryOk(onesignalResp);
-      deliveryError = deliveryOk ? null : getOneSignalDeliveryError(onesignalResp);
-    } catch (pushErr) {
-      deliveryError = pushErr?.message || 'Failed to send push notification';
-      onesignalResp = pushErr?.response || null;
-      if (pushErr?.code === 'ONESIGNAL_ENV_MISSING') {
-        deliveryError =
-          'Push notifications are not configured on the server (ONESIGNAL_APP_ID / ONESIGNAL_REST_API_KEY).';
-      }
-    }
-
-    const invalidIds = collectInvalidIds(onesignalResp?.errors);
-    if (invalidIds.length) {
-      await pruneInvalidSubscriptionIds(allMongoUserIds, invalidIds);
-    }
-    const targetUserIds = toAll ? [] : dedupeMongoUserIds(allMongoUserIds);
-    const invalidSet = new Set(invalidIds.map(String));
-    const sentPlayerIds = toAll ? [] : ids.filter((id) => !invalidSet.has(String(id)));
 
     const doc = await Notification.create({
-      title: title.trim(),
-      message: message.trim(),
-      data: data && typeof data === 'object' ? data : {},
-      target: toAll ? 'All' : 'Users',
-      userIds: targetUserIds,
+      ...baseDoc,
+      scheduledAt: null,
       onesignal: {
         notificationId: onesignalResp?.id || '',
         playerIds: toAll ? [] : deliveryOk ? sentPlayerIds : ids,
@@ -270,7 +467,6 @@ const sendNotificationByAdmin = async (req, res) => {
       },
       status: deliveryOk ? 'Sent' : 'Failed',
       error: deliveryError || '',
-      createdByAdminId: admin._id,
     });
 
     if (!deliveryOk) {
@@ -319,6 +515,8 @@ const getAllNotificationsAdmin = async (req, res) => {
         message: 'Admin not found or inactive',
       });
     }
+
+    await processDueScheduledNotifications();
 
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 10));

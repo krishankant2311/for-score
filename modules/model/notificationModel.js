@@ -21,9 +21,23 @@ const notificationSchema = new mongoose.Schema(
       deliveryMethod: { type: String, default: '' },
       raw: { type: mongoose.Schema.Types.Mixed, default: {} },
     },
+    type: {
+      type: String,
+      default: 'General',
+      trim: true,
+    },
+    recipientMode: {
+      type: String,
+      enum: ['all', 'active', 'custom'],
+      default: 'custom',
+    },
+    scheduledAt: {
+      type: Date,
+      default: null,
+    },
     status: {
       type: String,
-      enum: ['Sent', 'Failed'],
+      enum: ['Draft', 'Scheduled', 'Sent', 'Failed'],
       default: 'Sent',
     },
     error: { type: String, default: '' },
@@ -38,6 +52,7 @@ const notificationSchema = new mongoose.Schema(
 
 notificationSchema.index({ target: 1, createdAt: -1 });
 notificationSchema.index({ userIds: 1, createdAt: -1 });
+notificationSchema.index({ status: 1, scheduledAt: 1 });
 
 const Notification = mongoose.model('Notification', notificationSchema);
 
