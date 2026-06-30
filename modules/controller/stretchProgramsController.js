@@ -2,6 +2,7 @@ const User = require('../model/userModel');
 const Program = require('../model/programModel');
 const StretchProgram = require('../model/stretchProgramModel');
 const StretchSessionLog = require('../model/stretchSessionLogModel');
+const StretchMovementCompletion = require('../model/stretchMovementCompletionModel');
 const { toPublicFileUrl } = require('../../utils/publicFileUrl');
 
 const STRETCHING_TIPS = [
@@ -31,6 +32,103 @@ const normalizeDate = (dateInput) => {
   if (Number.isNaN(d.getTime())) return null;
   d.setHours(0, 0, 0, 0);
   return d;
+};
+
+const endOfDay = (dateInput) => {
+  const d = normalizeDate(dateInput);
+  if (!d) return null;
+  const end = new Date(d);
+  end.setHours(23, 59, 59, 999);
+  return end;
+};
+
+const parseMinutesFromTimeLabel = (timeLabel, programDurationMinutes, totalSessions) => {
+  const text = String(timeLabel || '').toLowerCase();
+  const match = text.match(/(\d+(?:\.\d+)?)\s*min/);
+  if (match) return Math.max(1, Math.round(Number(match[1])));
+  const programMinutes = Number(programDurationMinutes) || 0;
+  const count = Number(totalSessions) || 0;
+  if (programMinutes > 0 && count > 0) return Math.max(1, Math.round(programMinutes / count));
+  return 1;
+};
+
+const getProgramSessions = (program) => {
+  if (Array.isArray(program.movements) && program.movements.length) {
+    return program.movements.map((m, idx) => ({
+      sequenceOrder: Number(m.sequenceOrder) || idx + 1,
+      sequenceLabel: m.sequenceLabel || '',
+      movementName: m.movementName || m.name || '',
+      targetArea: m.targetArea || '',
+      timeLabel: m.timeLabel || '',
+    }));
+  }
+
+  if (Array.isArray(program.stretches) && program.stretches.length) {
+    return program.stretches.map((s, idx) => ({
+      sequenceOrder: Number(s.sequenceOrder) || idx + 1,
+      sequenceLabel: s.sequenceLabel || '',
+      movementName: s.movementName || s.name || '',
+      targetArea: s.targetArea || '',
+      timeLabel: s.timeLabel || s.detail || '',
+    }));
+  }
+
+  return [];
+};
+
+const getProgramIdString = (program) => String(program._id || '');
+
+const loadCompletionsForProgramDay = async (userId, programId, sessionDate) => {
+  const start = normalizeDate(sessionDate);
+  const end = endOfDay(sessionDate);
+  if (!start || !end) return [];
+
+  return StretchMovementCompletion.find({
+    userId,
+    programId,
+    sessionDate: { $gte: start, $lte: end },
+    status: { $ne: 'Deleted' },
+  })
+    .sort({ sequenceOrder: 1 })
+    .lean();
+};
+
+const buildProgramSessionProgress = (sessions, completions) => {
+  const completedOrders = new Set(completions.map((c) => Number(c.sequenceOrder)));
+  const total = sessions.length;
+  const completed = sessions.filter((s) => completedOrders.has(Number(s.sequenceOrder))).length;
+
+  return {
+    completed,
+    total,
+    allCompleted: total > 0 && completed >= total,
+    label: `${completed}/${total} completed`,
+  };
+};
+
+const mapSessionsWithCompletion = (program, completions, sessionDate) => {
+  const sessions = getProgramSessions(program);
+  const completionByOrder = new Map(
+    completions.map((c) => [Number(c.sequenceOrder), c])
+  );
+
+  return sessions.map((session) => {
+    const completion = completionByOrder.get(Number(session.sequenceOrder));
+    const durationMinutes = parseMinutesFromTimeLabel(
+      session.timeLabel,
+      program.durationMinutes,
+      sessions.length
+    );
+
+    return {
+      ...session,
+      durationMinutes,
+      durationLabel: `${durationMinutes} min`,
+      isCompleted: Boolean(completion),
+      completedAt: completion?.completedAt || null,
+      sessionDate: sessionDate ? normalizeDate(sessionDate).toISOString() : null,
+    };
+  });
 };
 
 const slugIconKey = (title) =>
@@ -247,7 +345,7 @@ const buildStretchProgramsPageResult = (req, programs, progress) => ({
   stretchingTips: buildStretchingTipsForUi(),
 });
 
-const buildProgramDetail = (req, program) => {
+const buildProgramDetail = (req, program, { sessions = [], sessionProgress = null } = {}) => {
   const movements = Array.isArray(program.movements) ? program.movements : [];
   const stretches = Array.isArray(program.stretches) ? program.stretches : [];
   const normalizedMovements = movements.map((m, idx) => ({
@@ -257,6 +355,15 @@ const buildProgramDetail = (req, program) => {
     targetArea: m.targetArea || '',
     timeLabel: m.timeLabel || '',
   }));
+
+  const progress =
+    sessionProgress ||
+    buildProgramSessionProgress(
+      getProgramSessions(program),
+      sessions
+        .filter((s) => s.isCompleted)
+        .map((s) => ({ sequenceOrder: s.sequenceOrder }))
+    );
 
   return {
     header: {
@@ -271,6 +378,8 @@ const buildProgramDetail = (req, program) => {
       programCode: program.programCode || '',
     },
     intro: program.intro || '',
+    sessions,
+    sessionProgress: progress,
     movements: normalizedMovements,
     stretches,
     meta: {
@@ -315,12 +424,22 @@ const loadAllStretchPrograms = async ({ category = '', source = '' } = {}) => {
 
 const computeDayStreak = (sessionDates) => {
   if (!sessionDates.length) return 0;
+
   const uniqueDays = new Set(sessionDates.map((d) => normalizeDate(d).toDateString()));
   const today = normalizeDate();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+
+  let startDay = today;
+  if (!uniqueDays.has(today.toDateString())) {
+    if (!uniqueDays.has(yesterday.toDateString())) return 0;
+    startDay = yesterday;
+  }
+
   let streak = 0;
   for (let i = 0; i < 365; i += 1) {
-    const d = new Date(today);
-    d.setDate(today.getDate() - i);
+    const d = new Date(startDay);
+    d.setDate(startDay.getDate() - i);
     if (uniqueDays.has(d.toDateString())) streak += 1;
     else break;
   }
@@ -328,19 +447,19 @@ const computeDayStreak = (sessionDates) => {
 };
 
 const buildUserProgress = async (userId) => {
-  const sessions = await StretchSessionLog.find({
+  const completions = await StretchMovementCompletion.find({
     userId,
     status: { $ne: 'Deleted' },
   })
-    .select('date durationMinutes')
+    .select('sessionDate durationMinutes')
     .lean();
 
-  const sessionsCount = sessions.length;
-  const totalMinutes = sessions.reduce(
+  const sessionsCount = completions.length;
+  const totalMinutes = completions.reduce(
     (sum, s) => sum + Number(s.durationMinutes || 0),
     0
   );
-  const dayStreak = computeDayStreak(sessions.map((s) => s.date));
+  const dayStreak = computeDayStreak(completions.map((s) => s.sessionDate));
 
   return {
     sessions: sessionsCount,
@@ -352,6 +471,30 @@ const buildUserProgress = async (userId) => {
       totalMinutes: String(totalMinutes),
     },
   };
+};
+
+const createMovementCompletion = async ({
+  userId,
+  programId,
+  session,
+  program,
+  sessionDate,
+}) => {
+  const durationMinutes = parseMinutesFromTimeLabel(
+    session.timeLabel,
+    program.durationMinutes,
+    getProgramSessions(program).length
+  );
+
+  return StretchMovementCompletion.create({
+    userId,
+    programId,
+    sequenceOrder: Number(session.sequenceOrder),
+    movementName: session.movementName || '',
+    sessionDate,
+    completedAt: new Date(),
+    durationMinutes,
+  });
 };
 
 const fitnessProgramFilter = () => ({
@@ -464,10 +607,199 @@ const getStretchProgramByIdForUser = async (req, res) => {
       });
     }
 
+    const sessionDate = normalizeDate(req.query.date);
+    const completions = await loadCompletionsForProgramDay(
+      user._id,
+      getProgramIdString(program),
+      sessionDate
+    );
+    const sessions = mapSessionsWithCompletion(program, completions, sessionDate);
+    const sessionProgress = buildProgramSessionProgress(getProgramSessions(program), completions);
+
     return res.json({
       success: true,
       message: 'Stretch program fetched successfully',
-      result: buildProgramDetail(req, program),
+      result: buildProgramDetail(req, program, { sessions, sessionProgress }),
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: err.message,
+    });
+  }
+};
+
+// POST /api/user/stretch-programs/:id/sessions/complete
+// Body: { sequenceOrder, date? }
+const completeStretchMovementSession = async (req, res) => {
+  try {
+    const userId = req.token?._id;
+    const user = await User.findById(userId).select('_id');
+    if (!user) {
+      return res.status(400).json({ success: false, message: 'User not found' });
+    }
+
+    const program = await findProgramById(req.params.id);
+    if (!program) {
+      return res.status(404).json({ success: false, message: 'Stretch program not found' });
+    }
+
+    const sequenceOrder = Number(req.body?.sequenceOrder);
+    if (!Number.isFinite(sequenceOrder) || sequenceOrder < 1) {
+      return res.status(400).json({
+        success: false,
+        message: 'sequenceOrder is required',
+      });
+    }
+
+    const sessionDate = normalizeDate(req.body?.date);
+    if (!sessionDate) {
+      return res.status(400).json({ success: false, message: 'Invalid date' });
+    }
+
+    const programSessions = getProgramSessions(program);
+    const session = programSessions.find((s) => Number(s.sequenceOrder) === sequenceOrder);
+    if (!session) {
+      return res.status(404).json({ success: false, message: 'Session not found in program' });
+    }
+
+    const programId = getProgramIdString(program);
+    const existing = await StretchMovementCompletion.findOne({
+      userId: user._id,
+      programId,
+      sequenceOrder,
+      sessionDate: { $gte: sessionDate, $lte: endOfDay(sessionDate) },
+      status: { $ne: 'Deleted' },
+    }).lean();
+
+    let completion = existing;
+    let alreadyCompleted = Boolean(existing);
+
+    if (!existing) {
+      completion = await createMovementCompletion({
+        userId: user._id,
+        programId,
+        session,
+        program,
+        sessionDate,
+      });
+    }
+
+    const completions = await loadCompletionsForProgramDay(user._id, programId, sessionDate);
+    const sessions = mapSessionsWithCompletion(program, completions, sessionDate);
+    const sessionProgress = buildProgramSessionProgress(programSessions, completions);
+    const yourProgress = await buildUserProgress(user._id);
+
+    return res.json({
+      success: true,
+      message: alreadyCompleted ? 'Session already completed' : 'Session completed successfully',
+      result: {
+        alreadyCompleted,
+        completion,
+        sessionProgress,
+        sessions,
+        yourProgress: buildProgressForUi(yourProgress),
+      },
+    });
+  } catch (err) {
+    if (err?.code === 11000) {
+      const sessionDate = normalizeDate(req.body?.date);
+      const program = await findProgramById(req.params.id);
+      const programId = getProgramIdString(program);
+      const completions = await loadCompletionsForProgramDay(req.token._id, programId, sessionDate);
+      const sessions = mapSessionsWithCompletion(program, completions, sessionDate);
+      const yourProgress = await buildUserProgress(req.token._id);
+      return res.json({
+        success: true,
+        message: 'Session already completed',
+        result: {
+          alreadyCompleted: true,
+          sessionProgress: buildProgramSessionProgress(getProgramSessions(program), completions),
+          sessions,
+          yourProgress: buildProgressForUi(yourProgress),
+        },
+      });
+    }
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: err.message,
+    });
+  }
+};
+
+// POST /api/user/stretch-programs/:id/sessions/complete-all
+// Body: { date? }
+const completeAllStretchMovementSessions = async (req, res) => {
+  try {
+    const userId = req.token?._id;
+    const user = await User.findById(userId).select('_id');
+    if (!user) {
+      return res.status(400).json({ success: false, message: 'User not found' });
+    }
+
+    const program = await findProgramById(req.params.id);
+    if (!program) {
+      return res.status(404).json({ success: false, message: 'Stretch program not found' });
+    }
+
+    const sessionDate = normalizeDate(req.body?.date);
+    if (!sessionDate) {
+      return res.status(400).json({ success: false, message: 'Invalid date' });
+    }
+
+    const programId = getProgramIdString(program);
+    const programSessions = getProgramSessions(program);
+    if (!programSessions.length) {
+      return res.status(400).json({ success: false, message: 'No sessions found in program' });
+    }
+
+    const existingCompletions = await loadCompletionsForProgramDay(
+      user._id,
+      programId,
+      sessionDate
+    );
+    const completedOrders = new Set(
+      existingCompletions.map((c) => Number(c.sequenceOrder))
+    );
+
+    const newlyCompleted = [];
+    for (const session of programSessions) {
+      if (completedOrders.has(Number(session.sequenceOrder))) continue;
+      const completion = await createMovementCompletion({
+        userId: user._id,
+        programId,
+        session,
+        program,
+        sessionDate,
+      });
+      newlyCompleted.push(completion);
+    }
+
+    const completions = await loadCompletionsForProgramDay(user._id, programId, sessionDate);
+    const sessions = mapSessionsWithCompletion(program, completions, sessionDate);
+    const sessionProgress = buildProgramSessionProgress(programSessions, completions);
+    const yourProgress = await buildUserProgress(user._id);
+
+    const addedMinutes = newlyCompleted.reduce(
+      (sum, item) => sum + Number(item.durationMinutes || 0),
+      0
+    );
+
+    return res.json({
+      success: true,
+      message: 'All sessions marked complete',
+      result: {
+        newlyCompletedCount: newlyCompleted.length,
+        alreadyCompletedCount: existingCompletions.length,
+        addedMinutes,
+        sessionProgress,
+        sessions,
+        yourProgress: buildProgressForUi(yourProgress),
+      },
     });
   } catch (err) {
     console.error(err);
@@ -547,6 +879,8 @@ module.exports = {
   getAllStretchProgramsForUser,
   getStretchProgramsPage,
   getStretchProgramByIdForUser,
+  completeStretchMovementSession,
+  completeAllStretchMovementSessions,
   logStretchSession,
   extractStretchesFromFitnessProgram,
   mapFitnessProgramToStretchProgram,

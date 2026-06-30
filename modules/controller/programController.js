@@ -467,6 +467,168 @@ const userProgramFilter = (extra = {}) => ({
   ...extra,
 });
 
+const RECOMMENDED_USER_SELECT =
+  'trainingLocation workoutSkillLevel workoutPreferences fitnessTarget workoutFrequency workoutDuration';
+
+/**
+ * Same rules as GET /programs/recommended/me — returns ordered programs that match the user profile.
+ */
+const computeRecommendedProgramsForUser = (user, activePrograms) => {
+  if (!user || !Array.isArray(activePrograms) || !activePrograms.length) {
+    return { programs: [], ruleApplied: 'NoUserOrPrograms' };
+  }
+
+  const location = (user.trainingLocation || '').toLowerCase();
+  const userSkill = (user.workoutSkillLevel || '').toUpperCase();
+  const preferenceRaw = (user.workoutPreferences || '').toLowerCase();
+  const preferenceItems = parseCsvString(user.workoutPreferences).map((x) => x.toLowerCase());
+  const allPreferenceTerms = [...new Set([preferenceRaw, ...preferenceItems].filter(Boolean))];
+  const target = (user.fitnessTarget || '').toUpperCase();
+  const frequency = Number(user.workoutFrequency || 0);
+
+  const hasTerm = (...terms) =>
+    terms.some((term) => allPreferenceTerms.some((pref) => pref.includes(term)));
+
+  const sortByNewest = (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+
+  if (hasTerm('prenatal', 'postpartum')) {
+    const prenatalList = activePrograms
+      .filter(
+        (p) =>
+          p.isPrenatalProgram === true ||
+          /prenatal|postpartum|radiant forge/i.test(`${p.programName} ${p.programCode || ''}`)
+      )
+      .sort(sortByNewest);
+    if (prenatalList.length) {
+      return { programs: prenatalList, ruleApplied: 'SafetyFlagPrenatalPostpartum' };
+    }
+  }
+
+  const workoutDuration = Number(user.workoutDuration || 0);
+  if (
+    (workoutDuration > 0 && workoutDuration < 20) ||
+    hasTerm('quick', 'quickies', 'limited time', 'express')
+  ) {
+    const quickList = activePrograms
+      .filter(
+        (p) =>
+          p.isQuickProgram === true ||
+          /15[- ]?minute|quick hits|quickies|express/i.test(`${p.programName} ${p.programCode || ''}`)
+      )
+      .sort(sortByNewest);
+    if (quickList.length) {
+      return { programs: quickList, ruleApplied: 'QuickiePriority' };
+    }
+  }
+
+  const skillMap = {
+    BEGINNER: ['Beginner', 'Beg / Int', 'Any'],
+    INTERMEDIATE: ['Intermediate', 'Beg / Int', 'Any'],
+    ADVANCED: ['Advanced', 'Any'],
+  };
+  const allowedSkills = skillMap[userSkill] || ['Any', 'Beg / Int'];
+
+  const goalTerms = [];
+  if (target === 'WEIGHTLOSS') goalTerms.push('weight loss', 'hiit', 'shred', 'burn');
+  else if (target === 'MUSCLEGAIN') goalTerms.push('muscle', 'strength', 'weight lifting');
+  else if (target === 'STRENGTH') goalTerms.push('strength', 'weight lifting');
+  else goalTerms.push('general fitness', 'functional', 'core', 'flow');
+
+  if (allPreferenceTerms.length) goalTerms.push(...allPreferenceTerms);
+
+  let candidates = activePrograms.filter((p) => {
+    const loc = (p.locationTag || '').toLowerCase();
+    const pSkill = p.workoutSkillLevel;
+    const pGoal = `${p.primaryGoal || ''} ${p.workoutPreference || ''} ${(p.tags || []).join(' ')}`.toLowerCase();
+    const gymRequired =
+      p.isGymRequired === true || /gym required|commercial gym required/i.test(loc);
+    const homeFriendly =
+      p.isHomeFriendly === true || /home|anywhere|no equipment|home friendly/.test(loc);
+
+    const locationOk =
+      location === 'home_workouts'
+        ? homeFriendly && !gymRequired
+        : location === 'gym_training'
+          ? loc.includes('gym') || loc.includes('any') || gymRequired
+          : true;
+
+    const skillOk = allowedSkills.includes(pSkill);
+    const goalOk = goalTerms.some((term) => pGoal.includes(String(term).toLowerCase()));
+
+    return locationOk && skillOk && goalOk;
+  });
+
+  if (location === 'home_workouts') {
+    candidates = candidates.filter(
+      (p) =>
+        !/elite strength|functional strength and mastery|crossfit|shred to stage/i.test(
+          `${p.programName} ${p.programCode || ''}`
+        )
+    );
+  }
+
+  if (frequency === 3 && candidates.length > 1) {
+    const priorityNames = [
+      /foundations/i,
+      /ignite/i,
+      /shred\s*&\s*burn|shred and burn/i,
+      /bodyweight basics/i,
+    ];
+    const prioritized = candidates.filter((p) => priorityNames.some((rx) => rx.test(p.programName)));
+    if (prioritized.length) candidates = prioritized;
+  }
+
+  if (!candidates.length) {
+    const fallback = activePrograms.find((p) => /28-day full body foundations/i.test(p.programName));
+    if (fallback) {
+      return { programs: [fallback], ruleApplied: 'NoMatchFallback' };
+    }
+    const latestList = [...activePrograms].sort(sortByNewest);
+    return { programs: latestList, ruleApplied: 'LatestActiveFallback' };
+  }
+
+  const scoreProgram = (p) => {
+    let score = 0;
+    const blob = `${p.programName || ''} ${p.primaryGoal || ''} ${p.workoutPreference || ''} ${(p.tags || []).join(' ')}`.toLowerCase();
+    if (allowedSkills.includes(p.workoutSkillLevel)) score += 3;
+    if (goalTerms.some((term) => blob.includes(String(term).toLowerCase()))) score += 4;
+    if (
+      location === 'home_workouts' &&
+      (p.isHomeFriendly || /home|anywhere|no equipment/i.test(p.locationTag || ''))
+    ) {
+      score += 3;
+    }
+    if (location === 'gym_training' && (p.isGymRequired || /gym/i.test(p.locationTag || ''))) {
+      score += 3;
+    }
+    if (frequency && p.daysPerWeek && Number(p.daysPerWeek) === frequency) score += 2;
+    if (frequency && p.frequency && String(p.frequency).includes(String(frequency))) score += 1;
+    return score;
+  };
+
+  const ranked = candidates
+    .map((p) => ({ p, score: scoreProgram(p) }))
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return new Date(b.p.createdAt).getTime() - new Date(a.p.createdAt).getTime();
+    })
+    .map((x) => x.p);
+
+  return { programs: ranked, ruleApplied: 'ProfileMatch' };
+};
+
+const attachRecommendationStatus = (programs, recommendedPrograms) => {
+  const recommendedIds = new Set(recommendedPrograms.map((p) => String(p._id)));
+  return programs.map((program) => {
+    const isRecommended = recommendedIds.has(String(program._id));
+    return {
+      ...program,
+      isRecommended,
+      recommendationStatus: isRecommended ? 'Recommended' : 'Not Recommended',
+    };
+  });
+};
+
 const getAllProgramsByUser = async (req, res) => {
   try {
     const user_id = req.token?._id;
@@ -474,14 +636,38 @@ const getAllProgramsByUser = async (req, res) => {
       return res.status(401).json({ success: false, message: 'Unauthorized' });
     }
 
-    const programs = await Program.find(userProgramFilter())
-      .sort({ updatedAt: -1, createdAt: -1 })
-      .lean();
+    const [user, programs] = await Promise.all([
+      User.findById(user_id).select(RECOMMENDED_USER_SELECT).lean(),
+      Program.find(userProgramFilter()).sort({ updatedAt: -1, createdAt: -1 }).lean(),
+    ]);
+
+    const programsForReco = programs.map((p) => ({
+      _id: p._id,
+      programName: p.programName,
+      programCode: p.programCode,
+      primaryGoal: p.primaryGoal,
+      workoutPreference: p.workoutPreference,
+      workoutSkillLevel: p.workoutSkillLevel,
+      locationTag: p.locationTag,
+      tags: p.tags,
+      isGymRequired: p.isGymRequired,
+      isHomeFriendly: p.isHomeFriendly,
+      isQuickProgram: p.isQuickProgram,
+      isPrenatalProgram: p.isPrenatalProgram,
+      daysPerWeek: p.daysPerWeek,
+      frequency: p.frequency,
+      createdAt: p.createdAt,
+    }));
+
+    const { programs: recommendedPrograms } = computeRecommendedProgramsForUser(user, programsForReco);
+
+    const withMedia = programs.map((p) => rewriteProgramMediaUrlsForResponse(req, p));
+    const result = attachRecommendationStatus(withMedia, recommendedPrograms);
 
     return res.json({
       success: true,
       message: 'Programs fetched successfully',
-      result: programs.map((p) => rewriteProgramMediaUrlsForResponse(req, p)),
+      result,
     });
   } catch (err) {
     console.error(err);
@@ -501,15 +687,26 @@ const getProgramByUserAndId = async (req, res) => {
     }
 
     const { id } = req.params;
-    const program = await Program.findOne(userProgramFilter({ _id: id })).lean();
+    const [user, program, allPrograms] = await Promise.all([
+      User.findById(user_id).select(RECOMMENDED_USER_SELECT).lean(),
+      Program.findOne(userProgramFilter({ _id: id })).lean(),
+      Program.find(userProgramFilter()).select(RECOMMENDED_PROGRAM_QUERY_SELECT).lean(),
+    ]);
+
     if (!program) {
       return res.status(404).json({ success: false, message: 'Program not found' });
     }
 
+    const { programs: recommendedPrograms } = computeRecommendedProgramsForUser(user, allPrograms);
+    const [withStatus] = attachRecommendationStatus(
+      [rewriteProgramMediaUrlsForResponse(req, program)],
+      recommendedPrograms
+    );
+
     return res.json({
       success: true,
       message: 'Program fetched successfully',
-      result: rewriteProgramMediaUrlsForResponse(req, program),
+      result: withStatus,
     });
   } catch (err) {
     console.error(err);
@@ -567,19 +764,6 @@ const getRecommendedProgramByUserProfile = async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    const location = (user.trainingLocation || '').toLowerCase();
-    const userSkill = (user.workoutSkillLevel || '').toUpperCase();
-    const preferenceRaw = (user.workoutPreferences || '').toLowerCase();
-    const preferenceItems = parseCsvString(user.workoutPreferences).map((x) =>
-      x.toLowerCase()
-    );
-    const allPreferenceTerms = [
-      ...new Set([preferenceRaw, ...preferenceItems].filter(Boolean)),
-    ];
-    const target = (user.fitnessTarget || '').toUpperCase();
-    const frequency = Number(user.workoutFrequency || 0);
-    const workoutDuration = Number(user.workoutDuration || 0);
-
     const activePrograms = await Program.find(userProgramFilter())
       .select(RECOMMENDED_PROGRAM_QUERY_SELECT)
       .lean();
@@ -589,147 +773,12 @@ const getRecommendedProgramByUserProfile = async (req, res) => {
         .json({ success: false, message: 'No active programs available' });
     }
 
-    const hasTerm = (...terms) =>
-      terms.some((term) => allPreferenceTerms.some((pref) => pref.includes(term)));
+    const { programs: ranked, ruleApplied } = computeRecommendedProgramsForUser(
+      user,
+      activePrograms
+    );
 
-    const sortByNewest = (a, b) =>
-      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-
-    if (hasTerm('prenatal', 'postpartum')) {
-      const prenatalList = activePrograms
-        .filter(
-          (p) =>
-            p.isPrenatalProgram === true ||
-            /prenatal|postpartum|radiant forge/i.test(
-              `${p.programName} ${p.programCode || ''}`
-            )
-        )
-        .sort(sortByNewest);
-      if (prenatalList.length) {
-        return res.json(paginate(prenatalList, 'SafetyFlagPrenatalPostpartum'));
-      }
-    }
-
-    if (
-      (workoutDuration > 0 && workoutDuration < 20) ||
-      hasTerm('quick', 'quickies', 'limited time', 'express')
-    ) {
-      const quickList = activePrograms
-        .filter(
-          (p) =>
-            p.isQuickProgram === true ||
-            /15[- ]?minute|quick hits|quickies|express/i.test(
-              `${p.programName} ${p.programCode || ''}`
-            )
-        )
-        .sort(sortByNewest);
-      if (quickList.length) {
-        return res.json(paginate(quickList, 'QuickiePriority'));
-      }
-    }
-
-    const skillMap = {
-      BEGINNER: ['Beginner', 'Beg / Int', 'Any'],
-      INTERMEDIATE: ['Intermediate', 'Beg / Int', 'Any'],
-      ADVANCED: ['Advanced', 'Any'],
-    };
-    const allowedSkills = skillMap[userSkill] || ['Any', 'Beg / Int'];
-
-    const goalTerms = [];
-    if (target === 'WEIGHTLOSS') goalTerms.push('weight loss', 'hiit', 'shred', 'burn');
-    else if (target === 'MUSCLEGAIN')
-      goalTerms.push('muscle', 'strength', 'weight lifting');
-    else if (target === 'STRENGTH') goalTerms.push('strength', 'weight lifting');
-    else goalTerms.push('general fitness', 'functional', 'core', 'flow');
-
-    if (allPreferenceTerms.length) goalTerms.push(...allPreferenceTerms);
-
-    let candidates = activePrograms.filter((p) => {
-      const loc = (p.locationTag || '').toLowerCase();
-      const pSkill = p.workoutSkillLevel;
-      const pGoal = `${p.primaryGoal || ''} ${p.workoutPreference || ''} ${(p.tags || []).join(' ')}`.toLowerCase();
-      const gymRequired =
-        p.isGymRequired === true || /gym required|commercial gym required/i.test(loc);
-      const homeFriendly =
-        p.isHomeFriendly === true ||
-        /home|anywhere|no equipment|home friendly/.test(loc);
-
-      const locationOk =
-        location === 'home_workouts'
-          ? homeFriendly && !gymRequired
-          : location === 'gym_training'
-          ? loc.includes('gym') || loc.includes('any') || gymRequired
-          : true;
-
-      const skillOk = allowedSkills.includes(pSkill);
-      const goalOk = goalTerms.some((term) => pGoal.includes(String(term).toLowerCase()));
-
-      return locationOk && skillOk && goalOk;
-    });
-
-    if (location === 'home_workouts') {
-      candidates = candidates.filter(
-        (p) =>
-          !/elite strength|functional strength and mastery|crossfit|shred to stage/i.test(
-            `${p.programName} ${p.programCode || ''}`
-          )
-      );
-    }
-
-    if (frequency === 3 && candidates.length > 1) {
-      const priorityNames = [
-        /foundations/i,
-        /ignite/i,
-        /shred\s*&\s*burn|shred and burn/i,
-        /bodyweight basics/i,
-      ];
-      const prioritized = candidates.filter((p) =>
-        priorityNames.some((rx) => rx.test(p.programName))
-      );
-      if (prioritized.length) candidates = prioritized;
-    }
-
-    if (!candidates.length) {
-      const fallback = activePrograms.find((p) =>
-        /28-day full body foundations/i.test(p.programName)
-      );
-      if (fallback) {
-        return res.json(paginate([fallback], 'NoMatchFallback'));
-      }
-      const latestList = [...activePrograms].sort(sortByNewest);
-      return res.json(paginate(latestList, 'LatestActiveFallback'));
-    }
-
-    const scoreProgram = (p) => {
-      let score = 0;
-      const blob = `${p.programName || ''} ${p.primaryGoal || ''} ${p.workoutPreference || ''} ${(p.tags || []).join(' ')}`.toLowerCase();
-      if (allowedSkills.includes(p.workoutSkillLevel)) score += 3;
-      if (goalTerms.some((term) => blob.includes(String(term).toLowerCase()))) score += 4;
-      if (
-        location === 'home_workouts' &&
-        (p.isHomeFriendly || /home|anywhere|no equipment/i.test(p.locationTag || ''))
-      )
-        score += 3;
-      if (
-        location === 'gym_training' &&
-        (p.isGymRequired || /gym/i.test(p.locationTag || ''))
-      )
-        score += 3;
-      if (frequency && p.daysPerWeek && Number(p.daysPerWeek) === frequency) score += 2;
-      if (frequency && p.frequency && String(p.frequency).includes(String(frequency)))
-        score += 1;
-      return score;
-    };
-
-    const ranked = candidates
-      .map((p) => ({ p, score: scoreProgram(p) }))
-      .sort((a, b) => {
-        if (b.score !== a.score) return b.score - a.score;
-        return new Date(b.p.createdAt).getTime() - new Date(a.p.createdAt).getTime();
-      })
-      .map((x) => x.p);
-
-    return res.json(paginate(ranked, 'ProfileMatch'));
+    return res.json(paginate(ranked, ruleApplied));
   } catch (err) {
     console.error(err);
     return res.status(500).json({

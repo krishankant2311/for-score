@@ -170,6 +170,8 @@ const {
   getAllStretchProgramsForUser,
   getStretchProgramsPage,
   getStretchProgramByIdForUser,
+  completeStretchMovementSession,
+  completeAllStretchMovementSessions,
   logStretchSession,
 } = require('../controller/stretchProgramsController');
 const { getOvalOfficePage } = require('../controller/ovalOfficeController');
@@ -391,6 +393,18 @@ router.get('/account/page', upload.none(), verifyAccessToken, getOvalOfficePage)
 // Stretch Programs page (mobile)
 router.get('/stretch-programs/page', upload.none(), verifyAccessToken, getStretchProgramsPage);
 router.get('/stretch-programs', upload.none(), verifyAccessToken, getAllStretchProgramsForUser);
+router.post(
+  '/stretch-programs/:id/sessions/complete-all',
+  upload.none(),
+  verifyAccessToken,
+  completeAllStretchMovementSessions
+);
+router.post(
+  '/stretch-programs/:id/sessions/complete',
+  upload.none(),
+  verifyAccessToken,
+  completeStretchMovementSession
+);
 router.get('/stretch-programs/:id', upload.none(), verifyAccessToken, getStretchProgramByIdForUser);
 router.post('/stretch-sessions', upload.none(), verifyAccessToken, logStretchSession);
 
