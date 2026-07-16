@@ -122,11 +122,7 @@ const buildSignupProfileUpdate = (body) => {
   }
 
   if (fitnessTarget) {
-    const ft = String(fitnessTarget).toUpperCase();
-    const allowedTargets = ['WEIGHTLOSS', 'MUSCLEGAIN', 'STRENGTH', 'GENRALFITNESS'];
-    if (allowedTargets.includes(ft)) {
-      profileUpdate.fitnessTarget = ft;
-    }
+    profileUpdate.fitnessTarget = String(fitnessTarget).trim();
   }
 
   if (targetweight != null && targetweight !== '' && !Number.isNaN(Number(targetweight))) {
@@ -2169,15 +2165,7 @@ const addFitnessTarget = async (req, res) => {
       });
     }
 
-    const allowed = ['WEIGHTLOSS', 'MUSCLEGAIN', 'STRENGTH', 'GENRALFITNESS', 'GENERALFITNESS'];
-    const value = String(fitnessTarget).toUpperCase();
-    if (!allowed.includes(value)) {
-      return res.status(400).json({
-        success: false,
-        message:
-          'Valid fitnessTarget is required (WEIGHTLOSS, MUSCLEGAIN, STRENGTH, GENERALFITNESS)',
-      });
-    }
+    const value = String(fitnessTarget).trim();
 
     const user = await User.findById(user_id);
     if (!user) {
