@@ -356,6 +356,7 @@ router.post(
 router.get('/nutrition/summary', upload.none(), verifyAccessToken, getDailyNutritionSummary);
 router.get('/nutrition/meals', upload.none(), verifyAccessToken, getDailyMeals);
 router.get('/nutrition/suggested-menu', upload.none(), verifyAccessToken, getSuggestedMenu);
+router.post('/nutrition/meals/:id/delete', upload.none(), verifyAccessToken, deleteMealLog);
 router.post('/meals/:id/delete', upload.none(), verifyAccessToken, deleteMealLog);
 
 // Plans (User read-only)
