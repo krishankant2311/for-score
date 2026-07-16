@@ -90,7 +90,8 @@ const putDailyExerciseCompletions = async (req, res) => {
 const postTodayExerciseSlotCompletion = async (req, res) => {
   try {
     const user_id = req.token?._id;
-    if (!(await User.findById(user_id))) {
+    const user = await User.findById(user_id).select('activeProgramId programStartedAt').lean();
+    if (!user) {
       return res.status(400).json({ success: false, message: 'User not found' });
     }
 
@@ -109,13 +110,49 @@ const postTodayExerciseSlotCompletion = async (req, res) => {
       completed === 1 ||
       completed === '1';
 
+    let workoutName = '';
+    if (user.activeProgramId && user.programStartedAt) {
+      const program = await Program.findOne({
+        _id: user.activeProgramId,
+        status: 'Active',
+        isDeleted: { $ne: true },
+      }).lean();
+      if (program) {
+        const { slots } = resolveTodaysExerciseSlots(
+          program,
+          user.programStartedAt,
+          normalizedDate,
+          String(program._id)
+        );
+        const slot = slots.find((s) => s.slotKey === k);
+        workoutName = String(slot?.name || '').trim();
+      }
+    }
+    const workoutLabel = workoutName || 'this workout';
+
     const existing = await DailyExerciseCompletion.findOne({
       userId: user_id,
       date: normalizedDate,
     }).lean();
     let keys = [...(existing?.completedSlotKeys || []).map((x) => String(x).trim()).filter(Boolean)];
+
+    if (done && keys.includes(k)) {
+      return res.json({
+        success: true,
+        message: `Congratulations! You have already completed ${workoutLabel}.`,
+        result: {
+          date: normalizedDate,
+          slot_key: k,
+          workout_name: workoutName,
+          completed: true,
+          completed_slot_keys: keys,
+          already_completed: true,
+        },
+      });
+    }
+
     if (done) {
-      if (!keys.includes(k)) keys.push(k);
+      keys.push(k);
     } else {
       keys = keys.filter((x) => x !== k);
     }
@@ -131,12 +168,16 @@ const postTodayExerciseSlotCompletion = async (req, res) => {
 
     return res.json({
       success: true,
-      message: done ? 'Marked complete for this day' : 'Marked incomplete for this day',
+      message: done
+        ? `Congratulations! You have completed ${workoutLabel}.`
+        : `${workoutLabel} marked incomplete for this day.`,
       result: {
         date: normalizedDate,
         slot_key: k,
+        workout_name: workoutName,
         completed: done,
         completed_slot_keys: doc?.completedSlotKeys || [],
+        already_completed: false,
       },
     });
   } catch (err) {
@@ -244,12 +285,13 @@ const markAllWorkoutSlotsCompleteForDay = async (req, res) => {
 
     return res.json({
       success: true,
-      message: 'All exercises for this day marked complete',
+      message: 'Congratulations! You have completed all workouts.',
       result: {
         date: normalizedDate,
         day_type: dayType,
         completedSlotKeys: doc?.completedSlotKeys || [],
         marked_count: keys.length,
+        already_completed: false,
       },
     });
   } catch (err) {
