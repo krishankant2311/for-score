@@ -99,13 +99,35 @@ const saveAppSettings = async (req, res) => {
 
     if (appName != null && appName !== '') settings.appName = String(appName).trim();
     if (appDescription != null) settings.appDescription = String(appDescription || '').trim();
-    if (supportEmail != null) settings.supportEmail = String(supportEmail || '').trim().toLowerCase();
+    if (supportEmail != null) {
+      const email = String(supportEmail || '').trim().toLowerCase();
+      if (!email) {
+        return res.status(400).json({
+          success: false,
+          message: 'Support email is required',
+        });
+      }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please enter a valid support email',
+        });
+      }
+      settings.supportEmail = email;
+    }
     if (contactPhone != null) {
       const phone = String(contactPhone || '').trim();
       if (phone && !/^[0-9+\s().-]+$/.test(phone)) {
         return res.status(400).json({
           success: false,
           message: 'Contact phone may only contain numbers and + ( ) - space',
+        });
+      }
+      const digitCount = phone.replace(/\D/g, '').length;
+      if (digitCount > 15) {
+        return res.status(400).json({
+          success: false,
+          message: 'Contact phone cannot exceed 15 digits',
         });
       }
       settings.contactPhone = phone;

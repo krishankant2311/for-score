@@ -357,7 +357,7 @@ const sendNotificationByAdmin = async (req, res) => {
       userIds: mongoUserIdsBody,
     });
 
-    if (!toAll && !targetUserIds.length && !ids.length) {
+    if (deliveryMode !== 'draft' && !toAll && !targetUserIds.length && !ids.length) {
       return res.status(400).json({
         success: false,
         message: 'sendToAll=true or at least one userId / playerId is required',
@@ -518,23 +518,47 @@ const getAllNotificationsAdmin = async (req, res) => {
 
     await processDueScheduledNotifications();
 
-    const page = Math.max(1, parseInt(req.query.page) || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 10));
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 10));
     const skip = (page - 1) * limit;
+    const statusRaw = String(req.query.status ?? '').trim();
+    const statusMap = {
+      sent: 'Sent',
+      scheduled: 'Scheduled',
+      draft: 'Draft',
+    };
+    const query = {};
+    if (statusMap[statusRaw.toLowerCase()]) {
+      query.status = statusMap[statusRaw.toLowerCase()];
+    }
 
-    const [items, total] = await Promise.all([
-      Notification.find({})
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
-      Notification.countDocuments({}),
+    const [items, total, sentCount, scheduledCount, draftCount] = await Promise.all([
+      Notification.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+      Notification.countDocuments(query),
+      Notification.countDocuments({ status: 'Sent' }),
+      Notification.countDocuments({ status: 'Scheduled' }),
+      Notification.countDocuments({ status: 'Draft' }),
     ]);
 
     return res.json({
       success: true,
       message: 'Notifications fetched successfully',
-      result: { items, total, page, limit, totalPages: Math.ceil(total / limit) },
+      result: {
+        items: items.map((item) => ({
+          ...item,
+          scheduledAt: item.scheduledAt ? new Date(item.scheduledAt).toISOString() : null,
+        })),
+        total,
+        page,
+        limit,
+        totalPages: total > 0 ? Math.ceil(total / limit) : 0,
+        statusCounts: {
+          all: sentCount + scheduledCount + draftCount,
+          sent: sentCount,
+          scheduled: scheduledCount,
+          draft: draftCount,
+        },
+      },
     });
   } catch (err) {
     console.error(err);

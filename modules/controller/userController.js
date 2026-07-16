@@ -438,6 +438,111 @@ const signup = async (req, res, next) => {
   }
 };
 
+/**
+ * Same as signup, but returns OTP in the response (for app testing / QA).
+ * Verify still via POST /api/user/verify-signup-otp
+ */
+const signupReturnOtp = async (req, res, next) => {
+  try {
+    const { name, email, password } = req.body;
+
+    if (!name || !email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Name, email and password are required',
+      });
+    }
+
+    const emailTrimmed = email.trim().toLowerCase();
+
+    if (!isPasswordValid(password)) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'Password must have at least one uppercase, one lowercase, one number, and one symbol (min 8 characters)',
+      });
+    }
+
+    const existingUser = await User.findOne({ email: emailTrimmed });
+    if (existingUser) {
+      if (existingUser.status === 'Deleted') {
+        return res.status(400).json({
+          success: false,
+          message: 'This user is deleted. Please sign up with a new email.',
+          result: {},
+        });
+      }
+      if (existingUser.status !== 'Pending') {
+        return res.status(400).json({
+          success: false,
+          message: 'This email is already registered. Please sign in.',
+          result: {},
+        });
+      }
+    }
+
+    const profileUpdate = buildSignupProfileUpdate(req.body);
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    const otp = generateSignupOtp();
+    const otpExpiresAt = new Date(Date.now() + SIGNUP_OTP_TTL_MS);
+    const otpSentAt = new Date();
+
+    if (existingUser) {
+      await User.updateOne(
+        { _id: existingUser._id },
+        {
+          $set: {
+            name: name.trim(),
+            password: hashedPassword,
+            ...profileUpdate,
+            securityToken: '',
+            'otp.otpValue': otp,
+            'otp.otpExpiry': otpExpiresAt,
+            'otp.otpSentAt': otpSentAt,
+          },
+          $unset: { signupOtp: '', signupOtpExpiry: '' },
+        }
+      );
+      const afterSignup = await User.findById(existingUser._id);
+      if (afterSignup) await safeSyncWeightGoal(afterSignup);
+    } else {
+      const created = await User.create({
+        name: name.trim(),
+        email: emailTrimmed,
+        password: hashedPassword,
+        status: 'Pending',
+        ...profileUpdate,
+        otp: { otpValue: otp, otpExpiry: otpExpiresAt, otpSentAt },
+      });
+      await safeSyncWeightGoal(created);
+    }
+
+    // Best-effort email — do not fail signup if mail is unavailable
+    try {
+      const subject = process.env.SIGNUP_OTP_EMAIL_SUBJECT || 'Verify your Four Score account';
+      await sendEmail(subject, emailTrimmed, getSignupOtpTemplate(otp));
+    } catch (mailErr) {
+      console.warn('signupReturnOtp: email send skipped/failed:', mailErr?.message || mailErr);
+    }
+
+    const statusCode = existingUser ? 200 : 201;
+    return res.status(statusCode).json({
+      success: true,
+      message: 'Verification code generated. Use OTP from response to verify.',
+      requiresEmailVerification: true,
+      result: {
+        email: emailTrimmed,
+        otp,
+        otpExpiresAt: otpExpiresAt.toISOString(),
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
 const resendSignupOtp = async (req, res, next) => {
   try {
     let { email } = req.body;
@@ -2536,6 +2641,7 @@ const saveOneSignalPlayerId = async (req, res) => {
 
 module.exports = {
   signup,
+  signupReturnOtp,
   verifySignupOtp,
   resendSignupOtp,
   googleAuth,

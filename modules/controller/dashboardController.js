@@ -5,6 +5,9 @@ const MealLog = require('../model/mealLogModel');
 const Program = require('../model/programModel');
 const NutritionItem = require('../model/nutritionItemModel');
 const DailyExerciseCompletion = require('../model/dailyExerciseCompletionModel');
+const Notification = require('../model/notificationModel');
+const Food = require('../model/foodModel');
+const Faq = require('../model/faqModel');
 
 const countExercisesInLibrary = (lib) => {
   if (!lib || typeof lib !== 'object') return 0;
@@ -15,18 +18,15 @@ const countExercisesInLibrary = (lib) => {
   return n;
 };
 
-const aggregateExerciseLibraryBuckets = async () => {
-  const programs = await Program.find({ status: 'Active', isDeleted: { $ne: true } })
-    .select('exerciseLibrary')
+/** Programs grouped by skill level — each program counted once; sum matches totalPrograms. */
+const aggregateProgramsBySkillLevel = async () => {
+  const programs = await Program.find({ isDeleted: { $ne: true } })
+    .select('workoutSkillLevel')
     .lean();
   const map = new Map();
   for (const p of programs) {
-    const lib = p.exerciseLibrary;
-    if (!lib || typeof lib !== 'object') continue;
-    for (const [key, arr] of Object.entries(lib)) {
-      if (!Array.isArray(arr)) continue;
-      map.set(key, (map.get(key) || 0) + arr.length);
-    }
+    const label = String(p.workoutSkillLevel || 'Unspecified').trim() || 'Unspecified';
+    map.set(label, (map.get(label) || 0) + 1);
   }
   return [...map.entries()]
     .map(([label, value]) => ({ label, value }))
@@ -401,9 +401,9 @@ const getAdminDashboard = async (req, res) => {
       ];
     })();
 
-    let exerciseLibraryCategories = await aggregateExerciseLibraryBuckets();
-    if (!exerciseLibraryCategories.length) {
-      exerciseLibraryCategories = [{ label: 'No program exercises', value: 0 }];
+    let programsByLevel = await aggregateProgramsBySkillLevel();
+    if (!programsByLevel.length) {
+      programsByLevel = [{ label: 'No programs', value: 0 }];
     }
 
     // ---------- Tables ----------
@@ -515,7 +515,10 @@ const getAdminDashboard = async (req, res) => {
     }
 
     // ---------- Recent activity ----------
-    const [recentUsers, recentWorkouts, recentMeals] = await Promise.all([
+    const activityCreatedMatch = from && to ? { createdAt: { $gte: from, $lt: to } } : {};
+
+    const [recentUsers, recentWorkouts, recentMeals, recentNotifications, recentFoods, recentPrograms, recentFaqs] =
+      await Promise.all([
       User.find({})
         .sort({ createdAt: -1 })
         .limit(5)
@@ -537,7 +540,80 @@ const getAdminDashboard = async (req, res) => {
         .limit(5)
         .select('_id userId mealType date createdAt')
         .lean(),
+      Notification.find(activityCreatedMatch)
+        .sort({ createdAt: -1 })
+        .limit(8)
+        .select('title status createdAt')
+        .lean(),
+      Food.find({ status: { $ne: 'Deleted' }, ...activityCreatedMatch })
+        .sort({ createdAt: -1 })
+        .limit(5)
+        .select('name createdAt')
+        .lean(),
+      Program.find({ status: 'Active', isDeleted: { $ne: true }, ...activityCreatedMatch })
+        .sort({ createdAt: -1 })
+        .limit(5)
+        .select('programName createdAt')
+        .lean(),
+      Faq.find({ status: { $ne: 'Deleted' }, ...activityCreatedMatch })
+        .sort({ createdAt: -1 })
+        .limit(5)
+        .select('question createdAt')
+        .lean(),
     ]);
+
+    const activityFeed = [
+      ...recentUsers.map((u) => ({
+        createdAt: u.createdAt,
+        event: 'New user registered',
+        meta: u.email || u.name || '',
+        type: 'user',
+      })),
+      ...recentWorkouts.map((w) => ({
+        createdAt: w.createdAt,
+        event: 'Workout completed',
+        meta: w.exerciseName || '',
+        type: 'workout',
+      })),
+      ...recentMeals.map((m) => ({
+        createdAt: m.createdAt,
+        event: 'Meal logged',
+        meta: m.mealType || '',
+        type: 'meal',
+      })),
+      ...recentNotifications.map((n) => ({
+        createdAt: n.createdAt,
+        event:
+          n.status === 'Draft'
+            ? 'Notification saved as draft'
+            : n.status === 'Scheduled'
+              ? 'Notification scheduled'
+              : 'Notification sent',
+        meta: n.title || '',
+        type: 'notification',
+      })),
+      ...recentFoods.map((f) => ({
+        createdAt: f.createdAt,
+        event: 'Food item added',
+        meta: f.name || '',
+        type: 'food',
+      })),
+      ...recentPrograms.map((p) => ({
+        createdAt: p.createdAt,
+        event: 'Fitness program added',
+        meta: p.programName || '',
+        type: 'program',
+      })),
+      ...recentFaqs.map((f) => ({
+        createdAt: f.createdAt,
+        event: 'FAQ added',
+        meta: f.question || '',
+        type: 'faq',
+      })),
+    ]
+      .filter((row) => row.createdAt)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 15);
 
     return res.json({
       success: true,
@@ -582,17 +658,22 @@ const getAdminDashboard = async (req, res) => {
             ? nutritionLogsThisWeekFinal
             : [{ label: 'Other', value: 0 }],
           nutritionLoggingStatus,
-          exerciseLibraryCategories,
+          programsByLevel,
         },
         tables: {
           topFoodsThisWeek,
           topExercisesThisWeek,
           topProgramsThisWeek,
+          topProgramsBasis:
+            topProgramsAgg.length > 0
+              ? 'workout_completions'
+              : 'active_enrollments_fallback',
         },
         recentActivity: {
           users: recentUsers,
           workouts: recentWorkouts,
           meals: recentMeals,
+          feed: activityFeed,
         },
       },
     });

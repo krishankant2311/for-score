@@ -5,6 +5,7 @@ const { handleMulterProgressPhotoUpload } = require('../../middleware/multer');
 const { verifyAccessToken } = require('../../middleware/jwt');
 const {
   signup,
+  signupReturnOtp,
   verifySignupOtp,
   resendSignupOtp,
   login,
@@ -188,6 +189,7 @@ const {
 } = require('../controller/nutritionCheatSheetController');
 
 router.post('/signup', upload.none(), signup);
+router.post('/signup-return-otp', upload.none(), signupReturnOtp);
 router.post('/verify-signup-otp', upload.none(), verifySignupOtp);
 router.post('/resend-signup-otp', upload.none(), resendSignupOtp);
 router.post('/login', upload.none(), login);

@@ -407,11 +407,24 @@ const list = async (req, res) => {
     const limit = Math.min(1000, Math.max(1, toInt(req.query.limit, 25)));
     const q = String(req.query.q || req.query.search || '').trim();
     const statusRaw = String(req.query.status || '').trim().toLowerCase();
+    const levelRaw = String(req.query.level || '').trim();
 
     const filter = { isDeleted: { $ne: true } };
     if (q) {
       const regex = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
-      filter.$or = [{ programName: regex }, { subHeader: regex }, { overview: regex }];
+      filter.$or = [
+        { programName: regex },
+        { subHeader: regex },
+        { overview: regex },
+        { workoutSkillLevel: regex },
+      ];
+    }
+    if (levelRaw && levelRaw.toLowerCase() !== 'all') {
+      const levelRegex = new RegExp(
+        `^${levelRaw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`,
+        'i'
+      );
+      filter.workoutSkillLevel = levelRegex;
     }
     if (statusRaw === 'active') filter.status = 'Active';
     else if (statusRaw === 'inactive') filter.status = 'Inactive';
