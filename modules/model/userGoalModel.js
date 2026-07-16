@@ -22,8 +22,8 @@ const userGoalSchema = new mongoose.Schema(
     // "Custom" for anything else.
     category: {
       type: String,
-      enum: ['Weight Loss', 'Weight Gain', 'Endurance', 'Strength', 'Nutrition', 'Habit', 'Custom'],
-      default: 'Custom',
+      default: '',
+      trim: true,
     },
     // Optional sub-label rendered under the title (e.g. "Weight Loss", "Endurance").
     subtitle: {
