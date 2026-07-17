@@ -276,8 +276,8 @@ router.get('/recovery-content', upload.none(), verifyAccessToken, getAllRecovery
 router.get('/recovery-content/:id', upload.none(), verifyAccessToken, getRecoveryContentByIdForUser);
 
 // Foods (global catalog + user's own foods)
-router.post('/foods', upload.none(), verifyAccessToken, addFoodByUser);
-router.post('/nutrition/foods', upload.none(), verifyAccessToken, addFoodByUser);
+router.post('/foods', upload.single('image'), verifyAccessToken, addFoodByUser);
+router.post('/nutrition/foods', upload.single('image'), verifyAccessToken, addFoodByUser);
 router.get('/foods/my', upload.none(), verifyAccessToken, getMyFoods);
 router.get('/nutrition/foods/my', upload.none(), verifyAccessToken, getMyFoods);
 router.get('/getall-foods', upload.none(), verifyAccessToken, getAllFoods);

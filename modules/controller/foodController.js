@@ -223,7 +223,7 @@ const addFoodByUser = async (req, res) => {
       category: category && allowedCategories.includes(category) ? category : 'Other',
       mealType: 'Other',
       servingSize: (servingSize || '').trim(),
-      image: '',
+      image: req.file?.path || '',
     });
 
     return res.status(201).json({
