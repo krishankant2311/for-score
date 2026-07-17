@@ -539,6 +539,50 @@ const deleteFoodByAdmin = async (req, res) => {
   }
 };
 
+// 7. User - Soft delete own food only
+const deleteMyFood = async (req, res) => {
+  try {
+    const user = await User.findById(req.token?._id);
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    const { id } = req.params;
+    const food = await Food.findOneAndUpdate(
+      {
+        _id: id,
+        createdByUserId: user._id,
+        status: { $ne: 'Deleted' },
+      },
+      { status: 'Deleted' },
+      { new: true }
+    ).lean();
+
+    if (!food) {
+      return res.status(404).json({
+        success: false,
+        message: 'Food not found',
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: 'Food deleted successfully',
+      result: withFoodImageUrl(req, food),
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: err.message,
+    });
+  }
+};
+
 module.exports = {
   getAllFoods,
   getMyFoods,
@@ -548,5 +592,6 @@ module.exports = {
   addFoodByAdmin,
   updateFoodByAdmin,
   deleteFoodByAdmin,
+  deleteMyFood,
 };
 
