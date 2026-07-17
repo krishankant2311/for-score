@@ -108,6 +108,7 @@ const {
 const {
   addFoodByUser,
   getAllFoods,
+  getMyFoods,
   getAllFoodCategories,
   getFoodById,
 } = require('../controller/foodController');
@@ -277,6 +278,8 @@ router.get('/recovery-content/:id', upload.none(), verifyAccessToken, getRecover
 // Foods (global catalog + user's own foods)
 router.post('/foods', upload.none(), verifyAccessToken, addFoodByUser);
 router.post('/nutrition/foods', upload.none(), verifyAccessToken, addFoodByUser);
+router.get('/foods/my', upload.none(), verifyAccessToken, getMyFoods);
+router.get('/nutrition/foods/my', upload.none(), verifyAccessToken, getMyFoods);
 router.get('/getall-foods', upload.none(), verifyAccessToken, getAllFoods);
 router.get('/get-all-food-categories', upload.none(), verifyAccessToken, getAllFoodCategories);
 router.get('/get-foods/:id', upload.none(), verifyAccessToken, getFoodById);

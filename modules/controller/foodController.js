@@ -288,6 +288,50 @@ const getAllFoods = async (req, res) => {
   }
 };
 
+// 2B. User - Get only foods created by current user
+const getMyFoods = async (req, res) => {
+  try {
+    const user = await User.findById(req.token?._id);
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    const category = req.query.category;
+    const mealType = req.query.mealType;
+    const search = (req.query.search || '').trim();
+    const query = {
+      status: { $ne: 'Deleted' },
+      createdByUserId: user._id,
+    };
+    if (category && allowedCategories.includes(category)) query.category = category;
+    if (mealType && allowedMealTypes.includes(mealType)) query.mealType = mealType;
+    if (search) {
+      const regex = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      query.name = regex;
+    }
+
+    const foods = await Food.find(query)
+      .sort({ createdAt: -1 })
+      .lean();
+
+    return res.json({
+      success: true,
+      message: 'My foods fetched successfully',
+      result: foods.map((food) => withFoodImageUrl(req, food)),
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: err.message,
+    });
+  }
+};
+
 // 3. User - Get all food categories
 const getAllFoodCategories = async (req, res) => {
   try {
@@ -498,6 +542,7 @@ const deleteFoodByAdmin = async (req, res) => {
 
 module.exports = {
   getAllFoods,
+  getMyFoods,
   getAllFoodCategories,
   getFoodById,
   addFoodByUser,
