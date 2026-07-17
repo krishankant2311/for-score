@@ -97,7 +97,6 @@ const addFoodByAdmin = async (req, res) => {
       carbs,
       fats,
       category,
-      mealType,
       servingSize,
     } = req.body;
 
@@ -222,7 +221,7 @@ const addFoodByUser = async (req, res) => {
       carbs: carbsParsed.value,
       fats: fatsParsed.value,
       category: category && allowedCategories.includes(category) ? category : 'Other',
-      mealType: mealType && allowedMealTypes.includes(mealType) ? mealType : 'Other',
+      mealType: 'Other',
       servingSize: (servingSize || '').trim(),
       image: '',
     });
