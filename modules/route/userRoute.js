@@ -102,6 +102,7 @@ const {
   getDailyMeals,
   getSuggestedMenu,
   deleteMealLog,
+  deleteMealLogItem,
   markMealLogComplete,
   markAllMealsCompleteForDay,
 } = require('../controller/nutritionDashboardController');
@@ -362,7 +363,9 @@ router.post(
 router.get('/nutrition/summary', upload.none(), verifyAccessToken, getDailyNutritionSummary);
 router.get('/nutrition/meals', upload.none(), verifyAccessToken, getDailyMeals);
 router.get('/nutrition/suggested-menu', upload.none(), verifyAccessToken, getSuggestedMenu);
+router.post('/nutrition/meals/:id/items/delete', upload.none(), verifyAccessToken, deleteMealLogItem);
 router.post('/nutrition/meals/:id/delete', upload.none(), verifyAccessToken, deleteMealLog);
+router.post('/meals/:id/items/delete', upload.none(), verifyAccessToken, deleteMealLogItem);
 router.post('/meals/:id/delete', upload.none(), verifyAccessToken, deleteMealLog);
 
 // Plans (User read-only)

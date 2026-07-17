@@ -616,6 +616,117 @@ const deleteMealLog = async (req, res) => {
   }
 };
 
+// 5B. Delete one item from a meal log (items do not have their own _id)
+const deleteMealLogItem = async (req, res) => {
+  try {
+    const user_id = req.token?._id;
+
+    const user = await User.findById(user_id);
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    const { id } = req.params;
+    const itemIndexRaw = req.body?.itemIndex ?? req.body?.index ?? req.query?.itemIndex ?? req.query?.index;
+    const itemIndex =
+      itemIndexRaw != null && itemIndexRaw !== '' && Number.isInteger(Number(itemIndexRaw))
+        ? Number(itemIndexRaw)
+        : null;
+    const foodId = String(req.body?.foodId ?? req.query?.foodId ?? '').trim();
+    const nutritionItemId = String(req.body?.nutritionItemId ?? req.query?.nutritionItemId ?? '').trim();
+    const name = String(req.body?.name ?? req.query?.name ?? '').trim().toLowerCase();
+
+    if (itemIndex == null && !foodId && !nutritionItemId && !name) {
+      return res.status(400).json({
+        success: false,
+        message: 'itemIndex, foodId, nutritionItemId or name is required',
+      });
+    }
+
+    const log = await MealLog.findOne({
+      _id: id,
+      userId: user_id,
+      status: { $ne: 'Deleted' },
+    });
+
+    if (!log) {
+      return res.status(404).json({
+        success: false,
+        message: 'Meal log not found',
+      });
+    }
+
+    const items = Array.isArray(log.items) ? log.items : [];
+    if (!items.length) {
+      return res.status(404).json({
+        success: false,
+        message: 'No meal items found',
+      });
+    }
+
+    let removeIndex = -1;
+    if (itemIndex != null) {
+      const sortedWithOriginalIndex = items
+        .map((item, originalIndex) => ({ item, originalIndex }))
+        .sort((a, b) => String(a.item.mealTime || '').localeCompare(String(b.item.mealTime || '')));
+      if (itemIndex < 0 || itemIndex >= sortedWithOriginalIndex.length) {
+        return res.status(400).json({
+          success: false,
+          message: 'itemIndex is out of range',
+        });
+      }
+      removeIndex = sortedWithOriginalIndex[itemIndex].originalIndex;
+    } else {
+      removeIndex = items.findIndex((item) => {
+        const itemFoodId = item.foodId != null ? String(item.foodId) : '';
+        const itemNutritionItemId =
+          item.nutritionItemId != null ? String(item.nutritionItemId) : '';
+        const itemName = String(item.name || '').trim().toLowerCase();
+        return (
+          (foodId && itemFoodId === foodId) ||
+          (nutritionItemId && itemNutritionItemId === nutritionItemId) ||
+          (name && itemName === name)
+        );
+      });
+    }
+
+    if (removeIndex < 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Meal item not found',
+      });
+    }
+
+    const [removedItem] = items.splice(removeIndex, 1);
+    log.items = items;
+    if (items.length === 0) {
+      log.status = 'Deleted';
+      log.isCompleted = false;
+      log.completedAt = null;
+    }
+    await log.save();
+
+    return res.json({
+      success: true,
+      message: 'Meal item deleted successfully',
+      result: {
+        meal: enrichMealLogForResponse(log.toObject ? log.toObject() : log),
+        deletedItem: removedItem,
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: err.message,
+    });
+  }
+};
+
 // 6. Mark one meal log complete / incomplete (by MealLog _id)
 const markMealLogComplete = async (req, res) => {
   try {
@@ -732,6 +843,7 @@ module.exports = {
   getDailyMeals,
   getSuggestedMenu,
   deleteMealLog,
+  deleteMealLogItem,
   markMealLogComplete,
   markAllMealsCompleteForDay,
 };
