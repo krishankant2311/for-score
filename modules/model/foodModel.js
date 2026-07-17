@@ -7,6 +7,12 @@ const foodSchema = new mongoose.Schema(
       ref: 'Admin',
       default: null,
     },
+    createdByUserId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+      index: true,
+    },
     name: {
       type: String,
       required: true,

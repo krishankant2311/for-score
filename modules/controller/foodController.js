@@ -41,6 +41,18 @@ const parseRequiredCalories = (raw) => {
   return { value: Math.round(n) };
 };
 
+const parseOptionalMacro = (raw, label) => {
+  if (raw == null || raw === '') return { value: 0 };
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) {
+    return { error: `${label} must be a valid number` };
+  }
+  if (n > 9999) {
+    return { error: `${label} cannot exceed 9999` };
+  }
+  return { value: n };
+};
+
 /** Rewrite DB `image` (disk path) to a public URL — no extra alias fields. */
 const withFoodImageUrl = (req, food) => {
   if (!food) return food;
@@ -58,6 +70,14 @@ const getValidAdmin = async (token) => {
   if (admin.status === 'Deleted') return null;
   return admin;
 };
+
+const buildUserVisibleFoodQuery = (userId) => ({
+  $or: [
+    { createdByUserId: userId },
+    { createdByUserId: null },
+    { createdByUserId: { $exists: false } },
+  ],
+});
 
 // 1. Admin - Add food in global catalog
 const addFoodByAdmin = async (req, res) => {
@@ -132,12 +152,103 @@ const addFoodByAdmin = async (req, res) => {
   }
 };
 
+// 1B. User - Add private food for own catalog
+const addFoodByUser = async (req, res) => {
+  try {
+    const user = await User.findById(req.token?._id);
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+    if (user.status === 'Blocked') {
+      return res.status(403).json({
+        success: false,
+        message: 'Your account has been blocked. Please contact support.',
+      });
+    }
+
+    const {
+      name,
+      calories,
+      protein,
+      carbs,
+      fats,
+      category,
+      mealType,
+      servingSize,
+    } = req.body;
+
+    if (!name || calories == null || calories === '') {
+      return res.status(400).json({
+        success: false,
+        message: 'name and calories are required',
+      });
+    }
+
+    const nameError = validateFoodName(name);
+    if (nameError) {
+      return res.status(400).json({
+        success: false,
+        message: nameError,
+      });
+    }
+
+    const caloriesParsed = parseRequiredCalories(calories);
+    if (caloriesParsed.error) {
+      return res.status(400).json({
+        success: false,
+        message: caloriesParsed.error,
+      });
+    }
+
+    const proteinParsed = parseOptionalMacro(protein, 'protein');
+    const carbsParsed = parseOptionalMacro(carbs, 'carbs');
+    const fatsParsed = parseOptionalMacro(fats, 'fats');
+    const macroError = proteinParsed.error || carbsParsed.error || fatsParsed.error;
+    if (macroError) {
+      return res.status(400).json({
+        success: false,
+        message: macroError,
+      });
+    }
+
+    const food = await Food.create({
+      createdByUserId: user._id,
+      name: name.trim(),
+      calories: caloriesParsed.value,
+      protein: proteinParsed.value,
+      carbs: carbsParsed.value,
+      fats: fatsParsed.value,
+      category: category && allowedCategories.includes(category) ? category : 'Other',
+      mealType: mealType && allowedMealTypes.includes(mealType) ? mealType : 'Other',
+      servingSize: (servingSize || '').trim(),
+      image: '',
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: 'Food added successfully',
+      result: withFoodImageUrl(req, food.toObject()),
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: err.message,
+    });
+  }
+};
+
 // 2. User or Admin - Get global food catalog
 const getAllFoods = async (req, res) => {
   try {
     const admin = await getValidAdmin(req.token);
+    let user = null;
     if (!admin) {
-      const user = await User.findById(req.token?._id);
+      user = await User.findById(req.token?._id);
       if (!user) {
         return res.status(400).json({
           success: false,
@@ -150,6 +261,7 @@ const getAllFoods = async (req, res) => {
     const mealType = req.query.mealType;
     const search = (req.query.search || '').trim();
     const query = { status: { $ne: 'Deleted' } };
+    if (!admin) Object.assign(query, buildUserVisibleFoodQuery(user._id));
     if (category && allowedCategories.includes(category)) query.category = category;
     if (mealType && allowedMealTypes.includes(mealType)) query.mealType = mealType;
     if (search) {
@@ -190,7 +302,10 @@ const getAllFoodCategories = async (req, res) => {
       });
     }
 
-    const categories = await Food.distinct('category', { status: { $ne: 'Deleted' } });
+    const categories = await Food.distinct('category', {
+      status: { $ne: 'Deleted' },
+      ...buildUserVisibleFoodQuery(user._id),
+    });
     const normalized = categories
       .map((c) => String(c || '').trim())
       .filter(Boolean)
@@ -226,7 +341,9 @@ const getFoodById = async (req, res) => {
     }
 
     const { id } = req.params;
-    const food = await Food.findOne({ _id: id, status: { $ne: 'Deleted' } }).lean();
+    const query = { _id: id, status: { $ne: 'Deleted' } };
+    if (!admin) Object.assign(query, buildUserVisibleFoodQuery(req.token?._id));
+    const food = await Food.findOne(query).lean();
 
     if (!food) {
       return res.status(404).json({
@@ -383,6 +500,7 @@ module.exports = {
   getAllFoods,
   getAllFoodCategories,
   getFoodById,
+  addFoodByUser,
   addFoodByAdmin,
   updateFoodByAdmin,
   deleteFoodByAdmin,

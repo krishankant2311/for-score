@@ -106,6 +106,7 @@ const {
   markAllMealsCompleteForDay,
 } = require('../controller/nutritionDashboardController');
 const {
+  addFoodByUser,
   getAllFoods,
   getAllFoodCategories,
   getFoodById,
@@ -273,7 +274,9 @@ router.post('/notifications/:id/read', upload.none(), verifyAccessToken, markNot
 router.get('/recovery-content', upload.none(), verifyAccessToken, getAllRecoveryContentForUser);
 router.get('/recovery-content/:id', upload.none(), verifyAccessToken, getRecoveryContentByIdForUser);
 
-// Foods (admin catalog for users)
+// Foods (global catalog + user's own foods)
+router.post('/foods', upload.none(), verifyAccessToken, addFoodByUser);
+router.post('/nutrition/foods', upload.none(), verifyAccessToken, addFoodByUser);
 router.get('/getall-foods', upload.none(), verifyAccessToken, getAllFoods);
 router.get('/get-all-food-categories', upload.none(), verifyAccessToken, getAllFoodCategories);
 router.get('/get-foods/:id', upload.none(), verifyAccessToken, getFoodById);
