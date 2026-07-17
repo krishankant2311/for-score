@@ -153,82 +153,6 @@ const buildSignupProfileUpdate = (body) => {
   return profileUpdate;
 };
 
-const GOOGLE_SIGNUP_REQUIRED_FIELDS = [
-  'gender',
-  'age',
-  'weight',
-  'height',
-  'activityFactor',
-  'fitnessGoal',
-  'targetweight',
-  'goalDuration',
-];
-
-const validateGoogleSignupBody = (body) => {
-  const missing = [];
-  const errors = [];
-
-  const gender = String(body?.gender || '').toLowerCase();
-  if (!['male', 'female'].includes(gender)) {
-    missing.push('gender');
-  }
-
-  if (body?.age == null || body?.age === '' || Number.isNaN(Number(body.age))) {
-    missing.push('age');
-  }
-
-  if (body?.weight == null || body?.weight === '' || Number.isNaN(Number(body.weight))) {
-    missing.push('weight');
-  }
-
-  const hasHeight =
-    (body?.height != null && body?.height !== '' && !Number.isNaN(Number(body.height))) ||
-    (body?.heightFeet != null && body?.heightInches != null);
-  if (!hasHeight) {
-    missing.push('height (or heightFeet + heightInches)');
-  }
-
-  const activityKey = normalizeActivityFactorKey(
-    body?.activityFactor ?? body?.activity_factor
-  );
-  if (!activityKey) {
-    missing.push('activityFactor');
-  }
-
-  const goalKey = normalizeWeeklyGoalKey(body?.fitnessGoal ?? body?.weeklyWeightGoal);
-  const allowedGoals = ['lose_1', 'lose_0_5', 'maintain', 'gain_0_5', 'gain_1'];
-  if (!goalKey || !allowedGoals.includes(goalKey)) {
-    missing.push('fitnessGoal');
-  }
-
-  const targetRaw = body?.targetweight ?? body?.targetWeight;
-  if (targetRaw == null || targetRaw === '' || Number.isNaN(Number(targetRaw))) {
-    missing.push('targetweight');
-  }
-
-  const gd = String(body?.goalDuration || '').toLowerCase();
-  const allowedGD = ['8w', '12w', '16w', '24w'];
-  if (!allowedGD.includes(gd)) {
-    missing.push('goalDuration');
-  }
-
-  if (body?.workoutFrequency != null && body?.workoutFrequency !== '') {
-    const wf = Number(body.workoutFrequency);
-    if (![3, 4, 5, 6].includes(wf)) {
-      errors.push('workoutFrequency must be 3, 4, 5, or 6');
-    }
-  }
-
-  if (body?.workoutSkillLevel) {
-    const wl = String(body.workoutSkillLevel).toUpperCase();
-    if (!['BEGINNER', 'INTERMEDIATE', 'ADVANCED'].includes(wl)) {
-      errors.push('workoutSkillLevel must be BEGINNER, INTERMEDIATE, or ADVANCED');
-    }
-  }
-
-  return { missing, errors, activityKey, goalKey };
-};
-
 const isPasswordValid = (password) => {
   if (password.length < 8) return false;
   if (!/[A-Z]/.test(password)) return false;
@@ -768,7 +692,7 @@ const verifyGoogleAuthRequest = async (req) => {
   }
 };
 
-// POST /api/user/auth/google/signup — first-time Google users (full onboarding required)
+// POST /api/user/auth/google/signup — first-time Google users
 const googleSignup = async (req, res, next) => {
   try {
     const auth = await verifyGoogleAuthRequest(req);
@@ -777,23 +701,6 @@ const googleSignup = async (req, res, next) => {
     }
 
     const { googleId, email, name: googleName, picture } = auth.googleUser;
-    const validation = validateGoogleSignupBody(req.body);
-
-    if (validation.missing.length) {
-      return res.status(400).json({
-        success: false,
-        message: 'Complete onboarding profile is required for Google signup',
-        missing_fields: validation.missing,
-        required_fields: GOOGLE_SIGNUP_REQUIRED_FIELDS,
-      });
-    }
-
-    if (validation.errors.length) {
-      return res.status(400).json({
-        success: false,
-        message: validation.errors.join('; '),
-      });
-    }
 
     const existing = await User.findOne({
       $or: [{ googleId }, { email }],
@@ -838,6 +745,7 @@ const googleSignup = async (req, res, next) => {
       ...profileUpdate,
     });
     await safeSyncWeightGoal(user);
+    const onboardingComplete = isProfileOnboardingComplete(user);
 
     const payload = { _id: user._id, email: user.email };
     const token = generateAccessToken(payload);
@@ -846,9 +754,11 @@ const googleSignup = async (req, res, next) => {
 
     return res.status(201).json({
       success: true,
-      message: 'Google signup successful',
+      message: onboardingComplete
+        ? 'Google signup successful'
+        : 'Google signup successful — complete your profile',
       isNewUser: true,
-      requiresOnboarding: false,
+      requiresOnboarding: !onboardingComplete,
       token,
       data: enrichUserProfileResponse(req, userObj),
     });
@@ -875,10 +785,9 @@ const googleAuth = async (req, res, next) => {
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: 'No account found. Complete Google signup with your profile details first.',
+        message: 'No account found. Sign up with Google first.',
         code: 'GOOGLE_SIGNUP_REQUIRED',
         signup_endpoint: '/api/user/auth/google/signup',
-        required_fields: GOOGLE_SIGNUP_REQUIRED_FIELDS,
       });
     }
 
