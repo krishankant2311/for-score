@@ -36,6 +36,32 @@ const DAY_API_KEYS = {
   sun: 'sunday',
 };
 
+const DAY_INPUT_TO_KEY = {
+  mon: 'mon',
+  monday: 'mon',
+  tue: 'tue',
+  tues: 'tue',
+  tuesday: 'tue',
+  wed: 'wed',
+  wednesday: 'wed',
+  thu: 'thu',
+  thur: 'thu',
+  thurs: 'thu',
+  thursday: 'thu',
+  fri: 'fri',
+  friday: 'fri',
+  sat: 'sat',
+  saturday: 'sat',
+  sun: 'sun',
+  sunday: 'sun',
+};
+
+const normalizeScheduleDayKey = (raw) => {
+  if (raw == null || raw === '') return null;
+  const key = String(raw).trim().toLowerCase().replace(/[^a-z]/g, '');
+  return DAY_INPUT_TO_KEY[key] || null;
+};
+
 const getMondayOfWeek = (refDate) => {
   const d = normalizeCalendarDate(refDate);
   const js = d.getDay();
@@ -772,14 +798,20 @@ const estimateSessionMinutes = (exercises, program) => {
   return Math.max(15, exercises.length * 10);
 };
 
-const resolveTodaysExerciseSlots = (program, programStartedAt, refDate, programIdStr) => {
+const resolveTodaysExerciseSlots = (
+  program,
+  programStartedAt,
+  refDate,
+  programIdStr,
+  dayKeyOverride = null
+) => {
   const weekGrid = program.weekGrid && typeof program.weekGrid === 'object' ? program.weekGrid : {};
   const exerciseLibrary =
     program.exerciseLibrary && typeof program.exerciseLibrary === 'object'
       ? program.exerciseLibrary
       : {};
 
-  const dayKey = mondayFirstDayKey(refDate);
+  const dayKey = dayKeyOverride || mondayFirstDayKey(refDate);
   const { weekNum, maxWeek } = resolveWeekNumber(program, weekGrid, refDate, programStartedAt);
 
   const inferred = inferScheduleStrategy(weekGrid, weekNum, dayKey, program);
@@ -935,7 +967,7 @@ const getTodaysWorkoutLogForExercise = async (userId, exerciseName, dayDate) => 
   }).lean();
 };
 
-const loadTodayExerciseContext = async (user_id, slotKey, refDateInput) => {
+const loadTodayExerciseContext = async (user_id, slotKey, refDateInput, options = {}) => {
   const key = String(slotKey || '').trim();
   if (!key) {
     return {
@@ -952,7 +984,8 @@ const loadTodayExerciseContext = async (user_id, slotKey, refDateInput) => {
   if (!user) {
     return { error: { status: 400, body: { success: false, message: 'User not found' } } };
   }
-  if (!user.activeProgramId || !user.programStartedAt) {
+  const requestedProgramId = options.programId || user.activeProgramId;
+  if (!requestedProgramId) {
     return {
       error: {
         status: 400,
@@ -963,8 +996,34 @@ const loadTodayExerciseContext = async (user_id, slotKey, refDateInput) => {
       },
     };
   }
+
+  const requestedDayKey =
+    options.dayKey || normalizeScheduleDayKey(options.day ?? options.dayName ?? null);
+  if ((options.day || options.dayName) && !requestedDayKey) {
+    return {
+      error: {
+        status: 400,
+        body: {
+          success: false,
+          message: 'Valid day is required (monday, tuesday, wednesday, thursday, friday, saturday, sunday)',
+        },
+      },
+    };
+  }
+
+  let programStartedAt = user.programStartedAt;
+  if (String(requestedProgramId) !== String(user.activeProgramId || '') || !programStartedAt) {
+    programStartedAt = options.startedAt || refDate;
+  }
+  const startDate = new Date(programStartedAt);
+  if (Number.isNaN(startDate.getTime())) {
+    return {
+      error: { status: 400, body: { success: false, message: 'Invalid startedAt' } },
+    };
+  }
+
   const program = await Program.findOne({
-    _id: user.activeProgramId,
+    _id: requestedProgramId,
     status: 'Active',
     isDeleted: { $ne: true },
   }).lean();
@@ -979,9 +1038,10 @@ const loadTodayExerciseContext = async (user_id, slotKey, refDateInput) => {
   const programIdStr = String(program._id);
   const { slots, inferred, weekNum, maxWeek, dayKey, dayType } = resolveTodaysExerciseSlots(
     program,
-    user.programStartedAt,
+    startDate,
     refDate,
-    programIdStr
+    programIdStr,
+    requestedDayKey
   );
   if (dayType && dayType !== 'workout') {
     return {
@@ -1522,6 +1582,131 @@ const getProgramWorkoutsById = async (req, res) => {
 };
 
 /**
+ * GET /api/user/programs/:id/workouts/day?day=monday&date=YYYY-MM-DD
+ * Returns one selected program day in the same shape as GET /workouts/today.
+ * `date` is the actual completion/logging date and defaults to today.
+ */
+const getProgramDayWorkoutById = async (req, res) => {
+  try {
+    const user_id = req.token?._id;
+    if (!user_id) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    const { id } = req.params;
+    if (!id) {
+      return res.status(400).json({ success: false, message: 'Program id is required' });
+    }
+
+    const dayKey = normalizeScheduleDayKey(req.query.day ?? req.query.dayKey);
+    if (!dayKey) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid day is required (monday, tuesday, wednesday, thursday, friday, saturday, sunday)',
+      });
+    }
+
+    const refDate = req.query.date ? new Date(req.query.date) : new Date();
+    if (Number.isNaN(refDate.getTime())) {
+      return res.status(400).json({ success: false, message: 'Invalid date query' });
+    }
+
+    const program = await Program.findOne({
+      _id: id,
+      status: 'Active',
+      isDeleted: { $ne: true },
+    }).lean();
+
+    if (!program) {
+      return res.status(404).json({ success: false, message: 'Program not found' });
+    }
+
+    const user = await User.findById(user_id).select('activeProgramId programStartedAt').lean();
+    if (!user) {
+      return res.status(400).json({ success: false, message: 'User not found' });
+    }
+
+    let startedAt = refDate;
+    if (String(user.activeProgramId || '') === String(program._id) && user.programStartedAt) {
+      startedAt = user.programStartedAt;
+    } else if (req.query.startedAt) {
+      const startInput = new Date(req.query.startedAt);
+      if (Number.isNaN(startInput.getTime())) {
+        return res.status(400).json({ success: false, message: 'Invalid startedAt query' });
+      }
+      startedAt = startInput;
+    }
+
+    const programIdStr = String(program._id);
+    const { slots, inferred, weekNum, maxWeek, dayType } = resolveTodaysExerciseSlots(
+      program,
+      startedAt,
+      refDate,
+      programIdStr,
+      dayKey
+    );
+
+    const normalizedDate = normalizeCalendarDate(refDate);
+    const completion = await DailyExerciseCompletion.findOne({
+      userId: user_id,
+      date: normalizedDate,
+    }).lean();
+    const doneKeys = new Set(
+      (completion?.completedSlotKeys || []).map((k) => String(k).trim()).filter(Boolean)
+    );
+
+    const exercises = slots.map((slot) =>
+      buildTodayWorkoutListItem(req, slot, doneKeys.has(slot.slotKey))
+    );
+
+    const result = {
+      date: normalizedDate,
+      date_string: toDateOnlyString(normalizedDate),
+      selected_day_key: dayKey,
+      selected_day: DAY_API_KEYS[dayKey],
+      selected_day_label: DAY_LABELS[dayKey] || dayKey,
+      workout_title: inferred.workoutTitle || program.programName || '',
+      day_type: dayType,
+      is_rest_day: dayType === 'rest',
+      is_recovery_day: dayType === 'recovery',
+      workout_skill_level: resolveProgramSkillLevel(program),
+      level: resolveProgramSkillLevel(program),
+      schedule_context: {
+        week_number: weekNum,
+        week_count: maxWeek,
+        day_key: dayKey,
+        slot_label: inferred.scheduleToken,
+      },
+      program: {
+        _id: program._id,
+        programName: program.programName,
+        programCode: program.programCode,
+      },
+      summary: buildDayWorkoutSummary(slots, program, exercises),
+      exercises,
+      workouts: exercises,
+    };
+
+    if (dayType === 'recovery') {
+      result.recovery = buildRecoveryPayloadForResponse(req, program);
+    }
+
+    return res.json({
+      success: true,
+      message: 'Program day workout fetched successfully',
+      result,
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: err.message,
+    });
+  }
+};
+
+/**
  * GET /api/user/programs/active/weekly-schedule?date=YYYY-MM-DD
  * Returns Mon–Sun workouts for the user's selected (active) program.
  */
@@ -1759,15 +1944,33 @@ const getTodayExerciseDetailFromProgram = async (req, res) => {
     if (!user) {
       return res.status(400).json({ success: false, message: 'User not found' });
     }
-    if (!user.activeProgramId || !user.programStartedAt) {
+
+    const requestedProgramId = req.query.programId || req.query.program_id || user.activeProgramId;
+    if (!requestedProgramId) {
       return res.status(400).json({
         success: false,
         message: 'No active program. POST /api/user/programs/active with programId first.',
       });
     }
 
+    const requestedDayKey = normalizeScheduleDayKey(req.query.day ?? req.query.dayKey);
+    if ((req.query.day || req.query.dayKey) && !requestedDayKey) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid day is required (monday, tuesday, wednesday, thursday, friday, saturday, sunday)',
+      });
+    }
+
+    let programStartedAt = user.programStartedAt;
+    if (String(requestedProgramId) !== String(user.activeProgramId || '') || !programStartedAt) {
+      programStartedAt = req.query.startedAt ? new Date(req.query.startedAt) : refDate;
+    }
+    if (Number.isNaN(new Date(programStartedAt).getTime())) {
+      return res.status(400).json({ success: false, message: 'Invalid startedAt query' });
+    }
+
     const program = await Program.findOne({
-      _id: user.activeProgramId,
+      _id: requestedProgramId,
       status: 'Active',
       isDeleted: { $ne: true },
     }).lean();
@@ -1780,7 +1983,7 @@ const getTodayExerciseDetailFromProgram = async (req, res) => {
 
     const programIdStr = String(program._id);
     const { slots, inferred, weekNum, maxWeek, dayKey, dayType } =
-      resolveTodaysExerciseSlots(program, user.programStartedAt, refDate, programIdStr);
+      resolveTodaysExerciseSlots(program, programStartedAt, refDate, programIdStr, requestedDayKey);
 
     const normalizedDate = normalizeCalendarDate(refDate);
     const scheduleContext = {
@@ -1887,9 +2090,14 @@ const getTodayExerciseDetailFromProgram = async (req, res) => {
 const saveTodayExercisePerformance = async (req, res) => {
   try {
     const user_id = req.token?._id;
-    const { slotKey, date, sets, notes } = req.body || {};
+    const { slotKey, date, sets, notes, programId, program_id, day, dayKey, startedAt } = req.body || {};
     const refDate = date ? new Date(date) : new Date();
-    const ctx = await loadTodayExerciseContext(user_id, slotKey, refDate);
+    const ctx = await loadTodayExerciseContext(user_id, slotKey, refDate, {
+      programId: programId || program_id,
+      day,
+      dayKey,
+      startedAt,
+    });
     if (ctx.error) return res.status(ctx.error.status).json(ctx.error.body);
 
     const parsed = parseBodySetsArray(sets);
@@ -1966,6 +2174,7 @@ module.exports = {
   getActiveProgramForUser: getSelectedProgramForUser,
   getWeeklyScheduleForActiveProgram,
   getProgramWorkoutsById,
+  getProgramDayWorkoutById,
   getTodayWorkout,
   getTodayExerciseDetailFromProgram,
   saveTodayExercisePerformance,
@@ -1974,6 +2183,7 @@ module.exports = {
   // in sync without duplicating the slot resolution logic.
   resolveTodaysExerciseSlots,
   normalizeCalendarDate,
+  normalizeScheduleDayKey,
   estimateSessionMinutes,
   buildTodayWorkoutListItem,
   buildRecoveryPayloadForResponse,

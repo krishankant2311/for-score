@@ -44,6 +44,7 @@ const {
   getSelectedProgramForUser,
   getWeeklyScheduleForActiveProgram,
   getProgramWorkoutsById,
+  getProgramDayWorkoutById,
   getTodayWorkout,
   getTodayExerciseDetailFromProgram,
   saveTodayExercisePerformance,
@@ -232,6 +233,7 @@ router.post('/programs/active', upload.none(), verifyAccessToken, selectActivePr
 router.get('/programs/active/weekly-schedule', upload.none(), verifyAccessToken, getWeeklyScheduleForActiveProgram);
 router.get('/programs/selected', upload.none(), verifyAccessToken, getSelectedProgramForUser);
 router.get('/programs/active', upload.none(), verifyAccessToken, getSelectedProgramForUser);
+router.get('/programs/:id/workouts/day', upload.none(), verifyAccessToken, getProgramDayWorkoutById);
 router.get('/programs/:id/workouts', upload.none(), verifyAccessToken, getProgramWorkoutsById);
 router.get('/programs/:id', upload.none(), verifyAccessToken, getProgramByUserAndId);
 

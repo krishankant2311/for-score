@@ -5,6 +5,7 @@ const {
   resolveTodaysExerciseSlots,
   normalizeCalendarDate,
   buildTodayWorkoutListItem,
+  normalizeScheduleDayKey,
 } = require('./todayWorkoutController');
 
 const getDailyExerciseCompletions = async (req, res) => {
@@ -95,7 +96,7 @@ const postTodayExerciseSlotCompletion = async (req, res) => {
       return res.status(400).json({ success: false, message: 'User not found' });
     }
 
-    const { date, slotKey, completed } = req.body || {};
+    const { date, slotKey, completed, programId, program_id, day, dayKey, startedAt } = req.body || {};
     const k = String(slotKey || '').trim();
     if (!k) {
       return res.status(400).json({ success: false, message: 'slotKey is required' });
@@ -111,18 +112,36 @@ const postTodayExerciseSlotCompletion = async (req, res) => {
       completed === '1';
 
     let workoutName = '';
-    if (user.activeProgramId && user.programStartedAt) {
+    const requestedProgramId = programId || program_id || user.activeProgramId;
+    const requestedDayKey = normalizeScheduleDayKey(day ?? dayKey);
+    if ((day || dayKey) && !requestedDayKey) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid day is required (monday, tuesday, wednesday, thursday, friday, saturday, sunday)',
+      });
+    }
+
+    if (requestedProgramId) {
+      let programStartedAt = user.programStartedAt;
+      if (String(requestedProgramId) !== String(user.activeProgramId || '') || !programStartedAt) {
+        programStartedAt = startedAt || normalizedDate;
+      }
+      const startDate = new Date(programStartedAt);
+      if (Number.isNaN(startDate.getTime())) {
+        return res.status(400).json({ success: false, message: 'Invalid startedAt' });
+      }
       const program = await Program.findOne({
-        _id: user.activeProgramId,
+        _id: requestedProgramId,
         status: 'Active',
         isDeleted: { $ne: true },
       }).lean();
       if (program) {
         const { slots } = resolveTodaysExerciseSlots(
           program,
-          user.programStartedAt,
+          startDate,
           normalizedDate,
-          String(program._id)
+          String(program._id),
+          requestedDayKey
         );
         const slot = slots.find((s) => s.slotKey === k);
         workoutName = String(slot?.name || '').trim();
@@ -231,15 +250,33 @@ const markAllWorkoutSlotsCompleteForDay = async (req, res) => {
       });
     }
 
-    if (!user.activeProgramId || !user.programStartedAt) {
+    const requestedProgramId = req.body?.programId || req.body?.program_id || user.activeProgramId;
+    const requestedDayKey = normalizeScheduleDayKey(req.body?.day ?? req.body?.dayKey ?? req.query?.day ?? req.query?.dayKey);
+    if ((req.body?.day || req.body?.dayKey || req.query?.day || req.query?.dayKey) && !requestedDayKey) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid day is required (monday, tuesday, wednesday, thursday, friday, saturday, sunday)',
+      });
+    }
+
+    if (!requestedProgramId) {
       return res.status(400).json({
         success: false,
         message: 'No active program. Select a program first.',
       });
     }
 
+    let programStartedAt = user.programStartedAt;
+    if (String(requestedProgramId) !== String(user.activeProgramId || '') || !programStartedAt) {
+      programStartedAt = req.body?.startedAt || req.query?.startedAt || refDate;
+    }
+    const startDate = new Date(programStartedAt);
+    if (Number.isNaN(startDate.getTime())) {
+      return res.status(400).json({ success: false, message: 'Invalid startedAt' });
+    }
+
     const program = await Program.findOne({
-      _id: user.activeProgramId,
+      _id: requestedProgramId,
       status: 'Active',
       isDeleted: { $ne: true },
     }).lean();
@@ -250,9 +287,10 @@ const markAllWorkoutSlotsCompleteForDay = async (req, res) => {
     const programIdStr = String(program._id);
     const { slots, dayType } = resolveTodaysExerciseSlots(
       program,
-      user.programStartedAt,
+      startDate,
       refDate,
-      programIdStr
+      programIdStr,
+      requestedDayKey
     );
 
     const keys = [...new Set(slots.map((s) => s.slotKey).filter(Boolean))];

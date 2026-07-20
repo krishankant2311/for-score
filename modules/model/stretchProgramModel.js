@@ -42,6 +42,7 @@ const stretchProgramSchema = new mongoose.Schema(
       type: Number,
       required: true,
       min: 1,
+      max: 999,
     },
     stretchCount: {
       type: Number,

@@ -3,6 +3,8 @@ const StretchProgram = require('../model/stretchProgramModel');
 
 const LEVELS = ['Beginner', 'Intermediate', 'All Levels'];
 const STATUSES = ['Active', 'Draft', 'Deleted'];
+const MAX_DURATION_MINUTES = 999;
+const MAX_MOVEMENT_TIME_MINUTES = 999;
 
 const getValidAdmin = async (token) => {
   const admin_id = token?._id;
@@ -72,7 +74,18 @@ const validatePayload = (payload) => {
   if (!Number.isFinite(payload.durationMinutes) || payload.durationMinutes < 1) {
     return 'durationMinutes must be at least 1';
   }
+  if (payload.durationMinutes > MAX_DURATION_MINUTES) {
+    return `durationMinutes cannot exceed ${MAX_DURATION_MINUTES}`;
+  }
   if (!payload.movements.length) return 'At least one movement is required';
+  const invalidMovementTime = payload.movements.find((m) => {
+    const raw = String(m.timeLabel ?? '').trim();
+    const minutes = Number(raw);
+    return !/^\d+$/.test(raw) || minutes < 1 || minutes > MAX_MOVEMENT_TIME_MINUTES;
+  });
+  if (invalidMovementTime) {
+    return `movement time must be numeric and between 1-${MAX_MOVEMENT_TIME_MINUTES} minutes`;
+  }
   return null;
 };
 
