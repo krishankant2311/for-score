@@ -4,7 +4,7 @@
  * - Activity factor multipliers (Sedentary → Extra Active)
  * - Weekly goal deficit/surplus (±250 / ±500 kcal)
  * - Macro split: 35% protein / 35% carbs / 30% fat
- * - Safety floors: female 1200, male 1500 kcal/day
+ * - Safety floors: female 1200, male 1500 kcal/day (no max caps)
  * - Goal vs timeline reality check
  */
 
@@ -37,9 +37,8 @@ const ACTIVITY_FACTORS = {
 const ALLOWED_ACTIVITY_FACTOR_KEYS = Object.keys(ACTIVITY_FACTORS);
 
 const LEGACY_MAINTENANCE_KCAL = 2200;
-const MAX_DAILY_TARGET = 4500;
-const MAX_MAINTENANCE_KCAL = 4000;
 
+/** Client Phase 3: never display target calories below these physiological floors. */
 const MIN_CALORIES_FEMALE = 1200;
 const MIN_CALORIES_MALE = 1500;
 
@@ -192,10 +191,17 @@ const resolveProfileForCalories = (user) => {
   return { heightInches, weightLbs, ageYears, gender: user?.gender, wasCentimeters };
 };
 
+/**
+ * Client Phase 3 floor constraint:
+ * Female target never below 1200, Male never below 1500.
+ * No max cap — target follows user profile calculation only.
+ */
 const applyCalorieFloor = (targetCalories, gender) => {
+  const rounded = Math.round(Number(targetCalories) || 0);
   const g = String(gender || '').toLowerCase();
-  const floor = g === 'male' ? MIN_CALORIES_MALE : MIN_CALORIES_FEMALE;
-  return Math.max(floor, Math.round(targetCalories));
+  if (g === 'male') return Math.max(MIN_CALORIES_MALE, rounded);
+  if (g === 'female') return Math.max(MIN_CALORIES_FEMALE, rounded);
+  return rounded;
 };
 
 const calculateMacroGrams = (targetCalories) => {
@@ -279,11 +285,10 @@ const buildCalorieEngineResult = (user) => {
 
   if (!profile) {
     const tdeeMaintenance = LEGACY_MAINTENANCE_KCAL;
-    let targetDailyCalories = applyCalorieFloor(
+    const targetDailyCalories = applyCalorieFloor(
       tdeeMaintenance + calorieAdjustment,
       user?.gender
     );
-    targetDailyCalories = Math.min(MAX_DAILY_TARGET, targetDailyCalories);
 
     return {
       calculations: {
@@ -312,14 +317,12 @@ const buildCalorieEngineResult = (user) => {
     })
   );
 
-  const tdeeMaintenance = Math.min(
-    MAX_MAINTENANCE_KCAL,
-    Math.round(bmr * activityMultiplier)
-  );
+  const tdeeMaintenance = Math.round(bmr * activityMultiplier);
 
-  let targetDailyCalories = Math.round(tdeeMaintenance + calorieAdjustment);
-  targetDailyCalories = applyCalorieFloor(targetDailyCalories, profile.gender || user?.gender);
-  targetDailyCalories = Math.min(MAX_DAILY_TARGET, targetDailyCalories);
+  const targetDailyCalories = applyCalorieFloor(
+    tdeeMaintenance + calorieAdjustment,
+    profile.gender || user?.gender
+  );
 
   return {
     calculations: {
