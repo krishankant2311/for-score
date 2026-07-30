@@ -572,10 +572,21 @@ const getAllNotificationsAdmin = async (req, res) => {
 
 // ---------------- User ----------------
 
-const userNotificationQuery = (userId) => ({
-  status: 'Sent',
-  $or: [{ target: 'All' }, { target: 'Users', userIds: userId }],
-});
+// Only notifications created on/after the user's registration — older
+// broadcast ("All") items must not appear for users who signed up later.
+const userNotificationQuery = (userId, registeredAt) => {
+  const query = {
+    status: 'Sent',
+    $or: [{ target: 'All' }, { target: 'Users', userIds: userId }],
+  };
+  if (registeredAt) {
+    const since = new Date(registeredAt);
+    if (!Number.isNaN(since.getTime())) {
+      query.createdAt = { $gte: since };
+    }
+  }
+  return query;
+};
 
 // GET /api/user/notifications
 const getNotificationsForUser = async (req, res) => {
@@ -592,7 +603,7 @@ const getNotificationsForUser = async (req, res) => {
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
     const skip = (page - 1) * limit;
 
-    const query = userNotificationQuery(user._id);
+    const query = userNotificationQuery(user._id, user.createdAt);
 
     const [items, total] = await Promise.all([
       Notification.find(query)
@@ -644,7 +655,9 @@ const markAllNotificationsRead = async (req, res) => {
       });
     }
 
-    const notifications = await Notification.find(userNotificationQuery(user._id))
+    const notifications = await Notification.find(
+      userNotificationQuery(user._id, user.createdAt)
+    )
       .select('_id')
       .lean();
 
@@ -703,8 +716,25 @@ const markNotificationRead = async (req, res) => {
     }
 
     const { id } = req.params;
-    const notif = await Notification.findById(id).select('_id target userIds status').lean();
+    const notif = await Notification.findById(id)
+      .select('_id target userIds status createdAt')
+      .lean();
     if (!notif || notif.status !== 'Sent') {
+      return res.status(404).json({
+        success: false,
+        message: 'Notification not found',
+      });
+    }
+
+    const registeredAt = user.createdAt ? new Date(user.createdAt).getTime() : null;
+    const notifCreatedAt = notif.createdAt ? new Date(notif.createdAt).getTime() : null;
+    if (
+      registeredAt != null &&
+      notifCreatedAt != null &&
+      !Number.isNaN(registeredAt) &&
+      !Number.isNaN(notifCreatedAt) &&
+      notifCreatedAt < registeredAt
+    ) {
       return res.status(404).json({
         success: false,
         message: 'Notification not found',
