@@ -16,7 +16,7 @@ const {
   ALLOWED_ACTIVITY_FACTOR_KEYS,
   isProfileOnboardingComplete,
 } = require('../../utils/calorieTargetHelpers');
-const { isBlockedUser, sendBlockedUserResponse } = require('../../utils/userAccessGuards');
+const { isBlockedUser, sendBlockedUserResponse, BLOCKED_USER_MESSAGE } = require('../../utils/userAccessGuards');
 
 // Safe wrapper: dashboard goal sync must never break the profile-save flow.
 // We log the error and continue so the user still sees their profile update.
@@ -801,7 +801,7 @@ const googleAuth = async (req, res, next) => {
     if (user.status === 'Blocked') {
       return res.status(403).json({
         success: false,
-        message: 'Your account is blocked. Please contact support.',
+        message: BLOCKED_USER_MESSAGE,
       });
     }
 
@@ -904,7 +904,7 @@ const login = async (req, res, next) => {
     if (user.status === 'Blocked') {
       return res.status(403).json({
         success: false,
-        message: 'Your account is blocked. Please contact support.',
+        message: BLOCKED_USER_MESSAGE,
       });
     }
 
@@ -962,7 +962,7 @@ const forgotPassword = async (req, res, next) => {
     if (user.status === 'Blocked') {
       return res.status(403).json({
         success: false,
-        message: 'Your account is blocked. Please contact support.',
+        message: BLOCKED_USER_MESSAGE,
       });
     }
 
@@ -1088,7 +1088,7 @@ const resetPassword = async (req, res, next) => {
     if (user.status === 'Blocked') {
       return res.status(403).json({
         success: false,
-        message: 'Your account is blocked. Please contact support.',
+        message: BLOCKED_USER_MESSAGE,
       });
     }
 

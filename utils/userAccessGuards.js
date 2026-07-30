@@ -1,4 +1,4 @@
-const BLOCKED_USER_MESSAGE = 'Your account is blocked. Please contact support.';
+const BLOCKED_USER_MESSAGE = 'Your account has been blocked. Please contact support.';
 
 const isBlockedUser = (user) => user?.status === 'Blocked';
 

@@ -2,6 +2,7 @@ const { Admin } = require('../model/adminModel');
 const Food = require('../model/foodModel');
 const User = require('../model/userModel');
 const { toPublicFileUrl } = require('../../utils/publicFileUrl');
+const { BLOCKED_USER_MESSAGE } = require('../../utils/userAccessGuards');
 
 const FOOD_NAME_PATTERN = /^[a-zA-Z0-9\s\-'.,()&]+$/;
 const FOOD_NAME_MAX = 100;
@@ -164,7 +165,7 @@ const addFoodByUser = async (req, res) => {
     if (user.status === 'Blocked') {
       return res.status(403).json({
         success: false,
-        message: 'Your account has been blocked. Please contact support.',
+        message: BLOCKED_USER_MESSAGE,
       });
     }
 
