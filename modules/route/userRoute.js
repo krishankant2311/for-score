@@ -48,6 +48,8 @@ const {
   getTodayWorkout,
   getTodayExerciseDetailFromProgram,
   saveTodayExercisePerformance,
+  setTodayWorkoutDayOverride,
+  clearTodayWorkoutDayOverride,
 } = require('../controller/todayWorkoutController');
 const {
   getDailyExerciseCompletions,
@@ -344,6 +346,18 @@ router.post(
   postTodayExerciseSlotCompletion
 );
 router.get('/workouts/today/exercise', upload.none(), verifyAccessToken, getTodayExerciseDetailFromProgram);
+router.post(
+  '/workouts/today/override',
+  upload.none(),
+  verifyAccessToken,
+  setTodayWorkoutDayOverride
+);
+router.post(
+  '/workouts/today/override/clear',
+  upload.none(),
+  verifyAccessToken,
+  clearTodayWorkoutDayOverride
+);
 router.get('/workouts/today', upload.none(), verifyAccessToken, getTodayWorkout);
 router.get('/workouts/:id', upload.none(), verifyAccessToken, getWorkoutLogById);
 router.post('/workouts/:id/delete', upload.none(), verifyAccessToken, deleteWorkoutLog);

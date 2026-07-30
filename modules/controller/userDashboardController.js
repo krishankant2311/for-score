@@ -21,6 +21,7 @@ const {
   normalizeCalendarDate,
   estimateSessionMinutes,
   buildRecoveryPayloadForResponse,
+  getEffectiveTodayDayOverride,
 } = require('./todayWorkoutController');
 const { buildGoalView } = require('./userGoalController');
 const { buildWaterView } = require('./waterLogController');
@@ -142,11 +143,13 @@ const buildTodayWorkoutCard = async (req, user, refDate) => {
   if (!program) return null;
 
   const programIdStr = String(program._id);
+  const dayOverride = getEffectiveTodayDayOverride(user, refDate);
   const { slots, inferred, dayType } = resolveTodaysExerciseSlots(
     program,
     user.programStartedAt,
     refDate,
-    programIdStr
+    programIdStr,
+    dayOverride
   );
 
   const normalizedDate = normalizeCalendarDate(refDate);

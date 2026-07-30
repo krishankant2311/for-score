@@ -558,7 +558,12 @@ const getAllUsers = async (req, res) => {
     }
     if (statusFilter === 'active') query.status = 'Active';
     else if (statusFilter === 'blocked') query.status = 'Blocked';
+    else if (statusFilter === 'pending') query.status = 'Pending';
     else if (statusFilter === 'deleted') query.status = 'Deleted';
+    else {
+      // All Users = Active + Blocked + Pending (exclude soft-deleted)
+      query.status = { $in: ['Active', 'Blocked', 'Pending'] };
+    }
 
     const [users, total] = await Promise.all([
       User.find(query).select('-password').sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
@@ -609,16 +614,18 @@ const getUserStats = async (req, res) => {
       });
     }
 
-    const [total, active, blocked] = await Promise.all([
-      User.countDocuments(),
+    const [active, blocked, pending] = await Promise.all([
       User.countDocuments({ status: 'Active' }),
       User.countDocuments({ status: 'Blocked' }),
+      User.countDocuments({ status: 'Pending' }),
     ]);
+    // Total matches Active + Blocked + Pending (Deleted excluded)
+    const total = active + blocked + pending;
 
     return res.status(200).json({
       success: true,
       message: 'User stats fetched successfully',
-      result: { total, active, blocked },
+      result: { total, active, blocked, pending },
     });
   } catch (err) {
     console.error(err);

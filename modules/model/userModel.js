@@ -145,6 +145,19 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    /**
+     * Optional per-user override: which schedule weekday powers "today" workout
+     * (mon|tue|…|sun). Valid only for the calendar day of todayWorkoutOverrideAt.
+     */
+    todayWorkoutOverrideDay: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    todayWorkoutOverrideAt: {
+      type: Date,
+      default: null,
+    },
     oneSignalPlayerId: {
       type: String,
       default: '',

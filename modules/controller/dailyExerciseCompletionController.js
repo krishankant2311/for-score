@@ -6,6 +6,7 @@ const {
   normalizeCalendarDate,
   buildTodayWorkoutListItem,
   normalizeScheduleDayKey,
+  getEffectiveTodayDayOverride,
 } = require('./todayWorkoutController');
 
 const getDailyExerciseCompletions = async (req, res) => {
@@ -91,7 +92,9 @@ const putDailyExerciseCompletions = async (req, res) => {
 const postTodayExerciseSlotCompletion = async (req, res) => {
   try {
     const user_id = req.token?._id;
-    const user = await User.findById(user_id).select('activeProgramId programStartedAt').lean();
+    const user = await User.findById(user_id)
+      .select('activeProgramId programStartedAt todayWorkoutOverrideDay todayWorkoutOverrideAt')
+      .lean();
     if (!user) {
       return res.status(400).json({ success: false, message: 'User not found' });
     }
@@ -113,12 +116,15 @@ const postTodayExerciseSlotCompletion = async (req, res) => {
 
     let workoutName = '';
     const requestedProgramId = programId || program_id || user.activeProgramId;
-    const requestedDayKey = normalizeScheduleDayKey(day ?? dayKey);
+    let requestedDayKey = normalizeScheduleDayKey(day ?? dayKey);
     if ((day || dayKey) && !requestedDayKey) {
       return res.status(400).json({
         success: false,
         message: 'Valid day is required (monday, tuesday, wednesday, thursday, friday, saturday, sunday)',
       });
+    }
+    if (!requestedDayKey) {
+      requestedDayKey = getEffectiveTodayDayOverride(user, normalizedDate);
     }
 
     if (requestedProgramId) {
@@ -216,7 +222,9 @@ const postTodayExerciseSlotCompletion = async (req, res) => {
 const markAllWorkoutSlotsCompleteForDay = async (req, res) => {
   try {
     const user_id = req.token?._id;
-    const user = await User.findById(user_id).select('activeProgramId programStartedAt').lean();
+    const user = await User.findById(user_id)
+      .select('activeProgramId programStartedAt todayWorkoutOverrideDay todayWorkoutOverrideAt')
+      .lean();
     if (!user) {
       return res.status(400).json({ success: false, message: 'User not found' });
     }
@@ -251,12 +259,20 @@ const markAllWorkoutSlotsCompleteForDay = async (req, res) => {
     }
 
     const requestedProgramId = req.body?.programId || req.body?.program_id || user.activeProgramId;
-    const requestedDayKey = normalizeScheduleDayKey(req.body?.day ?? req.body?.dayKey ?? req.query?.day ?? req.query?.dayKey);
-    if ((req.body?.day || req.body?.dayKey || req.query?.day || req.query?.dayKey) && !requestedDayKey) {
+    let requestedDayKey = normalizeScheduleDayKey(
+      req.body?.day ?? req.body?.dayKey ?? req.query?.day ?? req.query?.dayKey
+    );
+    if (
+      (req.body?.day || req.body?.dayKey || req.query?.day || req.query?.dayKey) &&
+      !requestedDayKey
+    ) {
       return res.status(400).json({
         success: false,
         message: 'Valid day is required (monday, tuesday, wednesday, thursday, friday, saturday, sunday)',
       });
+    }
+    if (!requestedDayKey) {
+      requestedDayKey = getEffectiveTodayDayOverride(user, refDate);
     }
 
     if (!requestedProgramId) {

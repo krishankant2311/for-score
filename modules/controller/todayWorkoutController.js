@@ -62,6 +62,21 @@ const normalizeScheduleDayKey = (raw) => {
   return DAY_INPUT_TO_KEY[key] || null;
 };
 
+/**
+ * Per-user "today" schedule-day override. Only applies on the calendar day
+ * it was set; otherwise ignored (caller may still clear via clear API).
+ */
+const getEffectiveTodayDayOverride = (user, refDate = new Date()) => {
+  const dayKey = normalizeScheduleDayKey(user?.todayWorkoutOverrideDay);
+  if (!dayKey) return null;
+  if (user?.todayWorkoutOverrideAt) {
+    const setOn = normalizeCalendarDate(user.todayWorkoutOverrideAt).getTime();
+    const ref = normalizeCalendarDate(refDate).getTime();
+    if (setOn !== ref) return null;
+  }
+  return dayKey;
+};
+
 const getMondayOfWeek = (refDate) => {
   const d = normalizeCalendarDate(refDate);
   const js = d.getDay();
@@ -980,7 +995,9 @@ const loadTodayExerciseContext = async (user_id, slotKey, refDateInput, options 
       error: { status: 400, body: { success: false, message: 'Invalid date' } },
     };
   }
-  const user = await User.findById(user_id).select('activeProgramId programStartedAt').lean();
+  const user = await User.findById(user_id).select(
+    'activeProgramId programStartedAt todayWorkoutOverrideDay todayWorkoutOverrideAt'
+  ).lean();
   if (!user) {
     return { error: { status: 400, body: { success: false, message: 'User not found' } } };
   }
@@ -997,7 +1014,7 @@ const loadTodayExerciseContext = async (user_id, slotKey, refDateInput, options 
     };
   }
 
-  const requestedDayKey =
+  let requestedDayKey =
     options.dayKey || normalizeScheduleDayKey(options.day ?? options.dayName ?? null);
   if ((options.day || options.dayName) && !requestedDayKey) {
     return {
@@ -1009,6 +1026,9 @@ const loadTodayExerciseContext = async (user_id, slotKey, refDateInput, options 
         },
       },
     };
+  }
+  if (!requestedDayKey) {
+    requestedDayKey = getEffectiveTodayDayOverride(user, refDate);
   }
 
   let programStartedAt = user.programStartedAt;
@@ -1273,6 +1293,8 @@ const selectActiveProgram = async (req, res) => {
     const start = startedAt ? normalizeCalendarDate(startedAt) : normalizeCalendarDate();
     user.activeProgramId = program._id;
     user.programStartedAt = start;
+    user.todayWorkoutOverrideDay = '';
+    user.todayWorkoutOverrideAt = null;
     await user.save();
 
     return res.json({
@@ -1817,7 +1839,9 @@ const getWeeklyScheduleForActiveProgram = async (req, res) => {
 const getTodayWorkout = async (req, res) => {
   try {
     const user_id = req.token?._id;
-    const user = await User.findById(user_id).select('activeProgramId programStartedAt').lean();
+    const user = await User.findById(user_id)
+      .select('activeProgramId programStartedAt todayWorkoutOverrideDay todayWorkoutOverrideAt')
+      .lean();
     if (!user) {
       return res.status(400).json({ success: false, message: 'User not found' });
     }
@@ -1847,12 +1871,14 @@ const getTodayWorkout = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid date query' });
     }
 
+    const dayOverride = getEffectiveTodayDayOverride(user, refDate);
     const programIdStr = String(program._id);
     const { slots, inferred, dayType } = resolveTodaysExerciseSlots(
       program,
       user.programStartedAt,
       refDate,
-      programIdStr
+      programIdStr,
+      dayOverride
     );
 
     const normalizedDate = normalizeCalendarDate(refDate);
@@ -1939,7 +1965,7 @@ const getTodayExerciseDetailFromProgram = async (req, res) => {
     }
 
     const user = await User.findById(user_id)
-      .select('activeProgramId programStartedAt')
+      .select('activeProgramId programStartedAt todayWorkoutOverrideDay todayWorkoutOverrideAt')
       .lean();
     if (!user) {
       return res.status(400).json({ success: false, message: 'User not found' });
@@ -1953,12 +1979,15 @@ const getTodayExerciseDetailFromProgram = async (req, res) => {
       });
     }
 
-    const requestedDayKey = normalizeScheduleDayKey(req.query.day ?? req.query.dayKey);
+    let requestedDayKey = normalizeScheduleDayKey(req.query.day ?? req.query.dayKey);
     if ((req.query.day || req.query.dayKey) && !requestedDayKey) {
       return res.status(400).json({
         success: false,
         message: 'Valid day is required (monday, tuesday, wednesday, thursday, friday, saturday, sunday)',
       });
+    }
+    if (!requestedDayKey) {
+      requestedDayKey = getEffectiveTodayDayOverride(user, refDate);
     }
 
     let programStartedAt = user.programStartedAt;
@@ -2168,6 +2197,96 @@ const saveTodayExercisePerformance = async (req, res) => {
   }
 };
 
+/**
+ * POST /api/user/workouts/today/override
+ * Body: { day: "friday" } — set this user's "today" workout to that schedule weekday
+ * (user-scoped only; expires next calendar day).
+ */
+const setTodayWorkoutDayOverride = async (req, res) => {
+  try {
+    const user_id = req.token?._id;
+    const dayRaw = req.body?.day ?? req.body?.dayKey;
+    const dayKey = normalizeScheduleDayKey(dayRaw);
+    if (!dayKey) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'Valid day is required (monday, tuesday, wednesday, thursday, friday, saturday, sunday)',
+      });
+    }
+
+    const user = await User.findById(user_id);
+    if (!user) {
+      return res.status(400).json({ success: false, message: 'User not found' });
+    }
+    if (isBlockedUser(user)) {
+      return sendBlockedUserResponse(res);
+    }
+    if (!user.activeProgramId || !user.programStartedAt) {
+      return res.status(400).json({
+        success: false,
+        message: 'No active program. POST /api/user/programs/active with programId first.',
+      });
+    }
+
+    user.todayWorkoutOverrideDay = dayKey;
+    user.todayWorkoutOverrideAt = normalizeCalendarDate();
+    await user.save();
+
+    return res.json({
+      success: true,
+      message: 'Today workout day override saved',
+      result: {
+        day_key: dayKey,
+        day: DAY_API_KEYS[dayKey],
+        override_at: user.todayWorkoutOverrideAt,
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: err.message,
+    });
+  }
+};
+
+/**
+ * POST /api/user/workouts/today/override/clear
+ * Clears this user's today workout day override.
+ */
+const clearTodayWorkoutDayOverride = async (req, res) => {
+  try {
+    const user_id = req.token?._id;
+    const user = await User.findById(user_id);
+    if (!user) {
+      return res.status(400).json({ success: false, message: 'User not found' });
+    }
+
+    user.todayWorkoutOverrideDay = '';
+    user.todayWorkoutOverrideAt = null;
+    await user.save();
+
+    return res.json({
+      success: true,
+      message: 'Today workout day override cleared',
+      result: {
+        day_key: null,
+        day: null,
+        override_at: null,
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: err.message,
+    });
+  }
+};
+
 module.exports = {
   selectActiveProgram,
   getSelectedProgramForUser,
@@ -2178,12 +2297,15 @@ module.exports = {
   getTodayWorkout,
   getTodayExerciseDetailFromProgram,
   saveTodayExercisePerformance,
+  setTodayWorkoutDayOverride,
+  clearTodayWorkoutDayOverride,
   // Helpers exported for reuse by the unified user dashboard controller so
   // the dashboard "Today's Workout" card and the dedicated endpoint stay
   // in sync without duplicating the slot resolution logic.
   resolveTodaysExerciseSlots,
   normalizeCalendarDate,
   normalizeScheduleDayKey,
+  getEffectiveTodayDayOverride,
   estimateSessionMinutes,
   buildTodayWorkoutListItem,
   buildRecoveryPayloadForResponse,

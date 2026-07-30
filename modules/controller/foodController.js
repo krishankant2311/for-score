@@ -442,6 +442,13 @@ const updateFoodByAdmin = async (req, res) => {
       });
     }
 
+    if (food.createdByUserId) {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin cannot edit foods added by users',
+      });
+    }
+
     const trimmedName = name != null ? String(name).trim() : '';
     if (!trimmedName) {
       return res.status(400).json({
