@@ -111,7 +111,7 @@ const {
 } = require('../controller/nutritionDashboardController');
 const {
   addFoodByUser,
-  getAllFoods,
+  getAllFoodsForUser,
   getMyFoods,
   getAllFoodCategories,
   getFoodById,
@@ -288,7 +288,7 @@ router.get('/foods/my', upload.none(), verifyAccessToken, getMyFoods);
 router.get('/nutrition/foods/my', upload.none(), verifyAccessToken, getMyFoods);
 router.post('/foods/:id/delete', upload.none(), verifyAccessToken, deleteMyFood);
 router.post('/nutrition/foods/:id/delete', upload.none(), verifyAccessToken, deleteMyFood);
-router.get('/getall-foods', upload.none(), verifyAccessToken, getAllFoods);
+router.get('/getall-foods', upload.none(), verifyAccessToken, getAllFoodsForUser);
 router.get('/get-all-food-categories', upload.none(), verifyAccessToken, getAllFoodCategories);
 router.get('/get-foods/:id', upload.none(), verifyAccessToken, getFoodById);
 

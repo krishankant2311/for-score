@@ -242,7 +242,66 @@ const addFoodByUser = async (req, res) => {
   }
 };
 
-// 2. User or Admin - Get global food catalog
+// 2A. User - Get global catalog + own foods (paginated)
+const getAllFoodsForUser = async (req, res) => {
+  try {
+    const user = await User.findById(req.token?._id);
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
+    const skip = (page - 1) * limit;
+
+    const rawCategory = String(req.query.category ?? 'all').trim();
+    const mealType = req.query.mealType;
+    const search = (req.query.search || '').trim();
+    const query = { status: { $ne: 'Deleted' } };
+    Object.assign(query, buildUserVisibleFoodQuery(user._id));
+    if (rawCategory && rawCategory.toLowerCase() !== 'all' && allowedCategories.includes(rawCategory)) {
+      query.category = rawCategory;
+    }
+    if (mealType && allowedMealTypes.includes(mealType)) query.mealType = mealType;
+    if (search) {
+      const regex = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      query.name = regex;
+    }
+
+    const [foods, total] = await Promise.all([
+      Food.find(query)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      Food.countDocuments(query),
+    ]);
+
+    return res.json({
+      success: true,
+      message: 'Foods fetched successfully',
+      result: {
+        items: foods.map((food) => withFoodImageUrl(req, food)),
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit) || 1,
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: err.message,
+    });
+  }
+};
+
+// 2. Admin - Get all foods (full list for admin panel)
 const getAllFoods = async (req, res) => {
   try {
     const admin = await getValidAdmin(req.token);
@@ -288,7 +347,7 @@ const getAllFoods = async (req, res) => {
   }
 };
 
-// 2B. User - Get only foods created by current user (paginated)
+// 2B. User - Get only foods created by current user
 const getMyFoods = async (req, res) => {
   try {
     const user = await User.findById(req.token?._id);
@@ -298,10 +357,6 @@ const getMyFoods = async (req, res) => {
         message: 'User not found',
       });
     }
-
-    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
-    const skip = (page - 1) * limit;
 
     const rawCategory = String(req.query.category ?? 'all').trim();
     const mealType = req.query.mealType;
@@ -319,25 +374,14 @@ const getMyFoods = async (req, res) => {
       query.name = regex;
     }
 
-    const [foods, total] = await Promise.all([
-      Food.find(query)
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
-      Food.countDocuments(query),
-    ]);
+    const foods = await Food.find(query)
+      .sort({ createdAt: -1 })
+      .lean();
 
     return res.json({
       success: true,
       message: 'My foods fetched successfully',
-      result: {
-        items: foods.map((food) => withFoodImageUrl(req, food)),
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit) || 1,
-      },
+      result: foods.map((food) => withFoodImageUrl(req, food)),
     });
   } catch (err) {
     console.error(err);
@@ -610,6 +654,7 @@ const deleteMyFood = async (req, res) => {
 
 module.exports = {
   getAllFoods,
+  getAllFoodsForUser,
   getMyFoods,
   getAllFoodCategories,
   getFoodById,
