@@ -288,7 +288,7 @@ const getAllFoods = async (req, res) => {
   }
 };
 
-// 2B. User - Get only foods created by current user
+// 2B. User - Get only foods created by current user (paginated)
 const getMyFoods = async (req, res) => {
   try {
     const user = await User.findById(req.token?._id);
@@ -299,28 +299,45 @@ const getMyFoods = async (req, res) => {
       });
     }
 
-    const category = req.query.category;
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
+    const skip = (page - 1) * limit;
+
+    const rawCategory = String(req.query.category ?? 'all').trim();
     const mealType = req.query.mealType;
     const search = (req.query.search || '').trim();
     const query = {
       status: { $ne: 'Deleted' },
       createdByUserId: user._id,
     };
-    if (category && allowedCategories.includes(category)) query.category = category;
+    if (rawCategory && rawCategory.toLowerCase() !== 'all' && allowedCategories.includes(rawCategory)) {
+      query.category = rawCategory;
+    }
     if (mealType && allowedMealTypes.includes(mealType)) query.mealType = mealType;
     if (search) {
       const regex = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
       query.name = regex;
     }
 
-    const foods = await Food.find(query)
-      .sort({ createdAt: -1 })
-      .lean();
+    const [foods, total] = await Promise.all([
+      Food.find(query)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      Food.countDocuments(query),
+    ]);
 
     return res.json({
       success: true,
       message: 'My foods fetched successfully',
-      result: foods.map((food) => withFoodImageUrl(req, food)),
+      result: {
+        items: foods.map((food) => withFoodImageUrl(req, food)),
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit) || 1,
+      },
     });
   } catch (err) {
     console.error(err);

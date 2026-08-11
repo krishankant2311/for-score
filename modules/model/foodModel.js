@@ -67,6 +67,20 @@ const foodSchema = new mongoose.Schema(
       enum: ['Active', 'Deleted'],
       default: 'Active',
     },
+    /** USDA FoodData Central id — used for bulk seed dedup */
+    fdcId: {
+      type: Number,
+      default: null,
+      index: true,
+      sparse: true,
+    },
+    /** e.g. usda-sr-legacy — bulk seeds only; admin manual adds leave empty */
+    seedSource: {
+      type: String,
+      default: '',
+      trim: true,
+      index: true,
+    },
   },
   { timestamps: true }
 );
