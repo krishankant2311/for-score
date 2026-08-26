@@ -1020,9 +1020,10 @@ const forgotPassword = async (req, res, next) => {
       success: true,
       message: 'Reset link sent to your email',
       expiresAt,
-      result: {
-        resetLink,
-      },
+      result:
+        process.env.NODE_ENV !== 'production'
+          ? { resetLink }
+          : {},
     });
   } catch (err) {
     next(err);

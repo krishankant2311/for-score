@@ -17,6 +17,13 @@ connectDB()
   .then(() => ensureNutritionCheatSheetSeed().catch((e) => console.error('Nutrition cheat sheet seed:', e.message)))
   .then(() => ensureStretchProgramSeed().catch((e) => console.error('Stretch program seed:', e.message)))
   .then(() => {
+    const { getMailConfig } = require('./modules/service/mailService');
+    const mail = getMailConfig();
+    console.log(
+      `Email: ${mail.provider.toUpperCase()} | from=${mail.from || '(not set)'} | smtp=${mail.smtpConfigured ? 'yes' : 'no'}`
+    );
+  })
+  .then(() => {
     app.listen(PORT, () => {
       console.log(`Server: http://localhost:${PORT}`);
     });

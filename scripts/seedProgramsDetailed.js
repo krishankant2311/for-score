@@ -235,27 +235,6 @@ const detailedPrograms = [
     },
   },
   {
-    programCode: 'express_15_minute',
-    subHeader: 'Zero Excuses. Maximum Intent.',
-    overview:
-      'Quick-hit 15-minute library for busy schedules. 40s work/20s rest, 3 rounds, multiple targets (full-body, posterior, upper, lower, core).',
-    weekGrid: {
-      module1: 'Full Body Ignite',
-      module2: 'Posterior Power',
-      module3: 'Upper Body Sculpt',
-      module4: 'Lower Body Burn',
-      module5: 'Core & Conditioning Finisher',
-    },
-    exerciseLibrary: {
-      full_body: ['Thrusters', 'Renegade Rows/Banded Row', 'Reverse Lunges', 'Push-ups', 'Mountain Climbers'],
-      posterior: ['RDL', 'Single-Arm Row', 'Glute Bridges', 'Superman', 'KB/DB Swings'],
-      upper: ['Overhead Press', 'Bicep Curls', 'Tricep Kickbacks', 'Lateral Raises', 'Plank to Push-up'],
-      lower: ['Goblet Squats', 'Lateral Lunges', 'Split Squat R/L', 'Jump Squats'],
-      core: ['DB Snatch/Woodchoppers', 'Bicycle Crunches', 'Burpees', 'Russian Twists', 'High Knees'],
-    },
-    recoveryProtocol: { timer: 'stopwatch + interval timer required for each module' },
-  },
-  {
     programCode: 'radiant_forge_prenatal',
     subHeader: 'Strength for Two: A Guided Path through Pregnancy and Beyond.',
     overview:

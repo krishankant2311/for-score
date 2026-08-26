@@ -584,6 +584,9 @@ const parseExerciseSlotFromProgram = (raw, order, programId, program = null) => 
   let thumbPath = String(
     o.thumbnail_url ?? o.thumbnailUrl ?? o.thumbUrl ?? o.thumbnail ?? ''
   ).trim();
+  let backupVideoPath = String(
+    o.backup_video_url ?? o.backupVideoUrl ?? o.backup_video ?? ''
+  ).trim();
   if (!videoPath && !thumbPath && Array.isArray(o.mediaUrls)) {
     for (const u of o.mediaUrls) {
       const s = String(u || '').trim();
@@ -618,6 +621,7 @@ const parseExerciseSlotFromProgram = (raw, order, programId, program = null) => 
     instructionsList,
     videoPath,
     thumbPath,
+    backupVideoPath,
     mediaType,
     notes,
     tempo,
@@ -652,6 +656,7 @@ const formatWorkoutListSubtitle = (slot) => {
 
 const buildExercisePayloadForUser = (req, slot, { includeInstructions } = {}) => {
   const videoUrl = slot.videoPath ? toPublicFileUrl(req, slot.videoPath) : '';
+  const backupVideoUrl = slot.backupVideoPath ? toPublicFileUrl(req, slot.backupVideoPath) : '';
   const thumbnailUrlNew = slot.thumbPath
     ? toPublicFileUrl(req, slot.thumbPath)
     : videoUrl;
@@ -672,8 +677,10 @@ const buildExercisePayloadForUser = (req, slot, { includeInstructions } = {}) =>
     order: slot.order,
     name: slot.name,
     video_url: videoUrl,
+    backup_video_url: backupVideoUrl,
     thumbnail_url: thumbnailUrlNew,
     videoUrl,
+    backupVideoUrl,
     thumbnailUrl: thumbnailUrlNew,
     target_sets: slot.targetSets,
     target_reps_range: slot.repRangeStr,
@@ -855,6 +862,13 @@ const resolveTodaysExerciseSlots = (
   }
   if (!listRaw && inferred.scheduleToken) {
     listRaw = guessLibraryFromScheduleToken(exerciseLibrary, inferred.scheduleToken);
+  }
+  if (!listRaw && /^[A-E]$/i.test(String(inferred.scheduleToken || inferred.libraryToken || '').trim())) {
+    const letter = String(inferred.scheduleToken || inferred.libraryToken).trim().toUpperCase();
+    listRaw =
+      program.workouts?.[letter] ??
+      program.workouts?.[letter.toLowerCase()] ??
+      null;
   }
   if (
     !listRaw &&
@@ -1119,6 +1133,7 @@ const buildTodayExerciseDetailScreen = (
   }
 ) => {
   const videoUrl = slot.videoPath ? toPublicFileUrl(req, slot.videoPath) : '';
+  const backupVideoUrl = slot.backupVideoPath ? toPublicFileUrl(req, slot.backupVideoPath) : '';
   const thumbUrl = slot.thumbPath ? toPublicFileUrl(req, slot.thumbPath) : videoUrl;
   const muscles = Array.isArray(slot.muscles) ? slot.muscles : [];
   const musclesLine = buildMusclesDisplayLine(muscles);
@@ -1176,6 +1191,7 @@ const buildTodayExerciseDetailScreen = (
     exercise: {
       name: slot.name,
       video_url: videoUrl,
+      backup_video_url: backupVideoUrl,
       thumbnail_url: thumbUrl,
       target_sets: slot.targetSets,
       reps_range: slot.repRangeStr,

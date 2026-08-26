@@ -46,6 +46,7 @@ const mkExercise = (name, opts = {}) => {
     estimated_calories: opts.calories ?? null,
     media_type: '',
     video_url: '',
+    backup_video_url: '',
     thumbnail_url: '',
     mediaUrls: [],
   };
@@ -2629,12 +2630,28 @@ const program11 = {
       mkExercise('Lateral Raises', { sets: 3, reps: '40s/20s', role: 'Accessory', alt: 'Banded Lateral', muscles: ['Shoulders'] }),
       mkExercise('Plank to Push-up', { sets: 3, reps: '40s/20s', role: 'Core', tag: 'Core', muscles: ['Core', 'Chest'] }),
     ],
+    D: [
+      mkExercise('Goblet Squats', { sets: 3, reps: '40s/20s', role: 'Large Muscle', tag: 'Large Muscle', muscles: ['Quads', 'Glutes'] }),
+      mkExercise('Lateral Lunges', { sets: 3, reps: '40s/20s', role: 'Primary Strength', muscles: ['Quads', 'Glutes'] }),
+      mkExercise('Split Squats (Right)', { sets: 3, reps: '40s', role: 'Primary Strength', muscles: ['Quads', 'Glutes'] }),
+      mkExercise('Split Squats (Left)', { sets: 3, reps: '40s', role: 'Primary Strength', muscles: ['Quads', 'Glutes'] }),
+      mkExercise('Jump Squats', { sets: 3, reps: '40s/20s', role: 'Power', alt: 'Air Squats (low impact)', muscles: ['Quads', 'Glutes'] }),
+    ],
+    E: [
+      mkExercise('Dumbbell Snatches', { sets: 3, reps: '40s/20s', role: 'Power', alt: 'Banded Woodchopper', muscles: ['Full Body'] }),
+      mkExercise('Bicycle Crunches', { sets: 3, reps: '40s/20s', role: 'Core', tag: 'Core', muscles: ['Core'] }),
+      mkExercise('Burpees', { sets: 3, reps: '40s/20s', role: 'Conditioning', alt: 'Step-back Burpees', muscles: ['Full Body'] }),
+      mkExercise('Russian Twists', { sets: 3, reps: '40s/20s', role: 'Core', tag: 'Core', muscles: ['Core'] }),
+      mkExercise('High Knees', { sets: 3, reps: '40s/20s', role: 'Conditioning', muscles: ['Full Body'] }),
+    ],
   },
 
   workoutsMeta: {
     A: mkMeta({ format: 'HIIT 40:20 × 3 Rounds', workInterval: '40s', restBetweenSets: '20s', rounds: '3', estDuration: '15 min' }),
     B: mkMeta({ format: 'HIIT 40:20 × 3 Rounds', workInterval: '40s', restBetweenSets: '20s', rounds: '3', estDuration: '15 min' }),
     C: mkMeta({ format: 'HIIT 40:20 × 3 Rounds', workInterval: '40s', restBetweenSets: '20s', rounds: '3', estDuration: '15 min' }),
+    D: mkMeta({ format: 'HIIT 40:20 × 3 Rounds', workInterval: '40s', restBetweenSets: '20s', rounds: '3', estDuration: '15 min' }),
+    E: mkMeta({ format: 'HIIT 40:20 × 3 Rounds', workInterval: '40s', restBetweenSets: '20s', rounds: '3', estDuration: '15 min' }),
   },
 
   exerciseLibrary: {
@@ -3297,7 +3314,17 @@ async function run() {
   let inserted = 0;
   let modified = 0;
 
-  for (const p of ALL_PROGRAMS) {
+  const onlyArg = process.argv.find((a) => a.startsWith('--only='));
+  const onlyCode = onlyArg ? onlyArg.slice('--only='.length).trim() : '';
+  const programsToSeed = onlyCode
+    ? ALL_PROGRAMS.filter((p) => p.programCode === onlyCode)
+    : ALL_PROGRAMS;
+
+  if (onlyCode && !programsToSeed.length) {
+    throw new Error(`Unknown program code for --only: ${onlyCode}`);
+  }
+
+  for (const p of programsToSeed) {
     // Ensure baseline fields and avoid orphaning the old isDeleted flag.
     const doc = {
       ...p,
@@ -3324,14 +3351,14 @@ async function run() {
   }
 
   const totalActive = await Program.countDocuments({
-    programCode: { $in: ALL_PROGRAMS.map((p) => p.programCode) },
+    programCode: { $in: programsToSeed.map((p) => p.programCode) },
     status: { $ne: 'Deleted' },
     isDeleted: { $ne: true },
   });
 
   console.log('--------------------------------------------------------------');
   console.log(`Seed complete. Inserted: ${inserted}, Modified: ${modified}, Total written: ${upserted}.`);
-  console.log(`Total ACTIVE tracked programs in DB: ${totalActive} / ${ALL_PROGRAMS.length}`);
+  console.log(`Total ACTIVE tracked programs in DB: ${totalActive} / ${programsToSeed.length}`);
   await mongoose.disconnect();
 }
 

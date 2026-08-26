@@ -14,16 +14,20 @@ const toBool = (value, defaultValue = true) => {
 
 const sendgridApiKey = (process.env.SENDGRID_API_KEY || '').trim();
 const mailFrom = (process.env.MAIL_FROM || process.env.SMTP_USER || '').trim();
+const mailFromName = (process.env.MAIL_FROM_NAME || 'Four Score').trim();
 
 const smtpHost = process.env.SMTP_HOST || process.env.MAIL_HOST || 'smtp.gmail.com';
 const smtpPort = Number(process.env.SMTP_PORT) || 587;
 const smtpSecure = toBool(process.env.SMTP_SECURE, smtpPort === 465);
 const smtpUser = (process.env.SMTP_USER || '').trim();
-const smtpPass = String(process.env.SMTP_PASS || process.env.MAIL_PASSWORD || '')
+const smtpPass = String(
+  process.env.SMTP_PASS || process.env.MAIL_PASSWORD || ''
+)
   .trim()
   .replace(/\s/g, '');
 
-const emailProvider = String(process.env.EMAIL_PROVIDER || 'sendgrid').trim().toLowerCase();
+/** Default: Nodemailer/SMTP. Set EMAIL_PROVIDER=sendgrid to use SendGrid instead. */
+const emailProvider = String(process.env.EMAIL_PROVIDER || 'smtp').trim().toLowerCase();
 
 const configureSendGrid = () => {
   if (!sendgridApiKey) return false;
@@ -55,7 +59,7 @@ const sendViaSendGrid = async (sub, to, html) => {
   }
 
   const msg = {
-    from: { name: 'Four Score', email: mailFrom },
+    from: { name: mailFromName, email: mailFrom },
     to,
     subject: sub,
     html,
@@ -96,7 +100,7 @@ const sendViaSmtp = async (sub, to, html) => {
   }
 
   const info = await transport.sendMail({
-    from: `"Four Score" <${from}>`,
+    from: `"${mailFromName}" <${from}>`,
     to,
     subject: sub,
     html,
@@ -104,20 +108,30 @@ const sendViaSmtp = async (sub, to, html) => {
   return info;
 };
 
+const usesSmtpProvider = () =>
+  emailProvider === 'smtp' ||
+  emailProvider === 'gmail' ||
+  emailProvider === 'nodemailer' ||
+  (!sendgridApiKey && Boolean(smtpUser && smtpPass));
+
+const getMailConfig = () => ({
+  provider: usesSmtpProvider() ? 'smtp' : 'sendgrid',
+  from: mailFrom || smtpUser || '',
+  smtpConfigured: Boolean(smtpUser && smtpPass),
+  sendgridConfigured: Boolean(sendgridApiKey),
+});
+
 /**
- * Sends email via SendGrid (default) or Gmail/SMTP when EMAIL_PROVIDER=smtp.
+ * Sends email via Nodemailer (SMTP) by default, or SendGrid when EMAIL_PROVIDER=sendgrid.
  */
 const sendEmail = async (sub, to, html) => {
-  const useSmtp =
-    emailProvider === 'smtp' ||
-    emailProvider === 'gmail' ||
-    (!sendgridApiKey && smtpUser && smtpPass);
+  const useSmtp = usesSmtpProvider();
 
   try {
     if (useSmtp) {
       const result = await sendViaSmtp(sub, to, html);
       if (!result) return false;
-      console.log(`✅ Email sent (SMTP) → ${to}`);
+      console.log(`✅ Email sent (Nodemailer/SMTP) → ${to}`);
       return result;
     }
 
@@ -131,11 +145,11 @@ const sendEmail = async (sub, to, html) => {
     console.log('❌ Email send failed:', details);
 
     if (!useSmtp && smtpUser && smtpPass) {
-      console.log('↪ Retrying with SMTP fallback…');
+      console.log('↪ Retrying with Nodemailer/SMTP fallback…');
       try {
         const fallback = await sendViaSmtp(sub, to, html);
         if (fallback) {
-          console.log(`✅ Email sent (SMTP fallback) → ${to}`);
+          console.log(`✅ Email sent (Nodemailer/SMTP fallback) → ${to}`);
           return fallback;
         }
       } catch (smtpErr) {
@@ -148,3 +162,10 @@ const sendEmail = async (sub, to, html) => {
 };
 
 module.exports = sendEmail;
+module.exports.getMailConfig = getMailConfig;
+module.exports.verifySmtpConnection = async () => {
+  const transport = getSmtpTransporter();
+  if (!transport) return { ok: false, message: 'SMTP not configured' };
+  await transport.verify();
+  return { ok: true, message: 'SMTP connection verified' };
+};

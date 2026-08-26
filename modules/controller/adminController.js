@@ -4,6 +4,7 @@ const bcrypt = require('bcryptjs');
 const { generateAccessToken } = require('../../middleware/jwt');
 const crypto = require('crypto');
 const sendEmail = require('../service/mailService');
+const { getResetPasswordTemplate } = require('../service/resetPasswordTemplate');
 
 const isPasswordValid = (password) => {
   if (password.length < 8) return false;
@@ -61,31 +62,47 @@ const forgotPassword = async (req, res) => {
       }
     );
 
-    const mailReady =
-      Boolean(process.env.MAIL_HOST) && Boolean(process.env.MAIL_PASSWORD);
+    const resetBaseUrl =
+      process.env.ADMIN_RESET_PASSWORD_URL ||
+      process.env.USER_RESET_PASSWORD_URL ||
+      process.env.FRONTEND_RESET_PASSWORD_URL ||
+      'https://for-score-frontend.vercel.app/reset-password';
+    const resetLink = `${resetBaseUrl}?token=${encodeURIComponent(resetToken)}`;
 
-    let emailed = false;
-    if (mailReady) {
-      const subject =
-        process.env.ADMIN_RESET_EMAIL_SUBJECT || 'Password reset — Admin';
-      const html = `<p>Use this code to reset your password (valid 15 minutes):</p><p><strong>${resetToken}</strong></p>`;
-      const result = await sendEmail(subject, admin.email, html);
-      emailed = Boolean(result);
-      if (!emailed) {
-        console.error('Admin forgot password: sendEmail returned failure');
-      }
+    const subject =
+      process.env.ADMIN_RESET_EMAIL_SUBJECT || 'Reset your Four Score admin password';
+    const mailed = await sendEmail(
+      subject,
+      admin.email,
+      getResetPasswordTemplate(resetLink),
+    );
+
+    if (!mailed) {
+      await Admin.updateOne(
+        { _id: admin._id },
+        {
+          $set: {
+            securityToken: '',
+            'otp.otpValue': '',
+            'otp.otpExpiry': null,
+          },
+        },
+      ).catch(() => {});
+      return res.status(502).json({
+        success: false,
+        message: 'Could not send reset email. Please try again later.',
+        result: {},
+      });
     }
 
-    const result = { expiresAt, emailed };
-    if (!emailed) {
-      result.resetToken = resetToken;
+    const result = { expiresAt, emailed: true };
+    if (process.env.NODE_ENV !== 'production') {
+      result.resetLink = resetLink;
     }
 
     return res.status(200).json({
       success: true,
-      message: emailed
-        ? 'Password reset instructions sent to your email'
-        : 'Reset token generated successfully',
+      message: 'Password reset link sent to your email',
       result,
     });
   } catch (err) {

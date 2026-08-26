@@ -41,6 +41,7 @@ const ExerciseSchema = new Schema(
     estimated_calories: Number,
     media_type: String,
     video_url: String,
+    backup_video_url: String,
     thumbnail_url: String,
     mediaUrls: [String],
   },
