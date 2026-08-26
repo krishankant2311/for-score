@@ -13,6 +13,17 @@ app.get('/', (req, res) => {
   res.json({ status: 'ok' });
 });
 
+/** Public health check — no auth. Browser: GET /api/test */
+app.get('/api/test', (req, res) => {
+  res.status(200).json({
+    success: true,
+    status: 'ok',
+    service: 'four-score-api',
+    message: 'Backend is running',
+    timestamp: new Date().toISOString(),
+  });
+});
+
 app.use('/api/user', userRoute);
 app.use('/api/admin', adminRoute);
 

@@ -10,7 +10,7 @@ const connectDB = require('./config/database');
 const { createDefaultAdmin } = require('./modules/model/adminModel');
 const { ensureNutritionCheatSheetSeed } = require('./modules/service/nutritionCheatSheetSeed');
 const { ensureStretchProgramSeed } = require('./modules/service/stretchProgramSeed');
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 5000;
 
 connectDB()
   .then(() => createDefaultAdmin())
