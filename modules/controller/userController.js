@@ -722,6 +722,36 @@ const googleSignup = async (req, res, next) => {
           login_endpoint: '/api/user/auth/google',
         });
       }
+      if (existing.authProvider === 'local' && existing.status === 'Active') {
+        existing.googleId = googleId;
+        if (!existing.name?.trim()) {
+          existing.name = req.body.name?.trim() || googleName || existing.name;
+        }
+        if (!existing.profilePhoto?.trim() && picture) {
+          existing.profilePhoto = picture;
+        }
+        const profileUpdate = buildSignupProfileUpdate(req.body);
+        if (Object.keys(profileUpdate).length) {
+          Object.assign(existing, profileUpdate);
+        }
+        await existing.save();
+        await safeSyncWeightGoal(existing);
+        const onboardingComplete = isProfileOnboardingComplete(existing);
+        const payload = { _id: existing._id, email: existing.email };
+        const token = generateAccessToken(payload);
+        const userObj = existing.toObject();
+        delete userObj.password;
+        return res.status(200).json({
+          success: true,
+          message: onboardingComplete
+            ? 'Google sign-in successful'
+            : 'Google sign-in successful — complete your profile',
+          isNewUser: false,
+          requiresOnboarding: !onboardingComplete,
+          token,
+          data: enrichUserProfileResponse(req, userObj),
+        });
+      }
       return res.status(400).json({
         success: false,
         message: 'This email is already registered. Sign in with email and password.',
@@ -813,15 +843,11 @@ const googleAuth = async (req, res, next) => {
     }
 
     if (!user.googleId) {
-      if (user.authProvider === 'local' && user.status === 'Active') {
-        return res.status(400).json({
-          success: false,
-          message: 'This email is registered with password. Sign in with email/password.',
-          code: 'EMAIL_PASSWORD_ACCOUNT',
-        });
-      }
       user.googleId = googleId;
-      user.authProvider = 'google';
+      // Keep authProvider as local when linking so email/password login still works.
+      if (user.authProvider !== 'local') {
+        user.authProvider = 'google';
+      }
     }
 
     if (user.status === 'Pending') {
