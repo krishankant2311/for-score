@@ -70,12 +70,40 @@ const parsePositiveInt = (v, fallback) => {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 };
 
+const firstExerciseThumbnailUrl = (program) => {
+  const lib = program?.exerciseLibrary;
+  if (!lib || typeof lib !== 'object') return '';
+  for (const key of Object.keys(lib)) {
+    const arr = lib[key];
+    if (!Array.isArray(arr)) continue;
+    for (const ex of arr) {
+      if (!ex || typeof ex !== 'object') continue;
+      const thumb = String(ex.thumbnail_url || '').trim();
+      if (/^https?:\/\//i.test(thumb)) return thumb;
+      const video = String(ex.video_url || '').trim();
+      const m = video.match(/embed\/([^?&/]+)/i);
+      if (m) return `https://img.youtube.com/vi/${m[1]}/hqdefault.jpg`;
+    }
+  }
+  return '';
+};
+
+/** List card image: /uploads/... path, or YouTube thumbnail when cover file not set. */
+const resolveProgramListImageUrl = (program) => {
+  const imageRaw = program.videoPath || program.thumbnail_url || '';
+  if (imageRaw) {
+    const uploadsPath = toUploadsWebPath(imageRaw);
+    if (uploadsPath) return uploadsPath;
+    if (/^https?:\/\//i.test(String(imageRaw).trim())) return String(imageRaw).trim();
+  }
+  return firstExerciseThumbnailUrl(program) || '';
+};
+
 /** Slim payload for Change Program / recommended list (screenshot fields only) */
 const toRecommendedProgramListItem = (req, program) => {
   const weeks = Math.max(0, Number(program.durationWeeks) || 0);
   const totalDays = weeks > 0 ? weeks * 7 : 0;
   const sessionMins = Math.max(0, Number(program.avgSessionMinutes) || 0);
-  const imageRaw = program.videoPath || program.thumbnail_url || '';
   const description =
     (program.subHeader && String(program.subHeader).trim()) ||
     (program.overview && String(program.overview).trim()) ||
@@ -85,7 +113,7 @@ const toRecommendedProgramListItem = (req, program) => {
     _id: program._id,
     title: program.programName || '',
     description,
-    imageUrl: imageRaw ? toUploadsWebPath(imageRaw) : '',
+    imageUrl: resolveProgramListImageUrl(program),
     sessionDuration: sessionMins > 0 ? `${sessionMins} min` : '',
     programDuration: totalDays > 0 ? `${totalDays} Days` : '',
     durationWeeks: weeks || null,

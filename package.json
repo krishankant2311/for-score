@@ -10,6 +10,12 @@
     "seed:quick-hits": "node scripts/seedAllPrograms.js --only=express_15_minute",
     "seed:usda-foods": "node scripts/seedUsdaFoods.js",
     "seed:exercise-media": "node scripts/importExerciseMedia.js",
+    "sync:uploads": "node scripts/syncUploadsFromDb.js",
+    "sync:uploads:dry": "node scripts/syncUploadsFromDb.js --dry-run",
+    "normalize:upload-paths": "node scripts/normalizeUploadPathsInDb.js --apply",
+    "normalize:upload-paths:dry": "node scripts/normalizeUploadPathsInDb.js --dry-run",
+    "hydrate:uploads": "node scripts/hydrateUploadsFromPrograms.js",
+    "hydrate:uploads:dry": "node scripts/hydrateUploadsFromPrograms.js --dry-run",
     "test:email": "node scripts/testEmail.js",
     "verify:programs": "node scripts/verifyAllPrograms.js"
   },
