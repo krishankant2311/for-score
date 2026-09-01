@@ -1,6 +1,6 @@
 const Program = require('../model/programModel');
 const User = require('../model/userModel');
-const { toPublicFileUrl } = require('../../utils/publicFileUrl');
+const { toPublicFileUrl, toUploadsWebPath } = require('../../utils/publicFileUrl');
 const {
   mergeRecoveryMediaUploads,
   mergeLibraryMediaUploads,
@@ -85,7 +85,7 @@ const toRecommendedProgramListItem = (req, program) => {
     _id: program._id,
     title: program.programName || '',
     description,
-    imageUrl: imageRaw ? toPublicFileUrl(req, imageRaw) : '',
+    imageUrl: imageRaw ? toUploadsWebPath(imageRaw) : '',
     sessionDuration: sessionMins > 0 ? `${sessionMins} min` : '',
     programDuration: totalDays > 0 ? `${totalDays} Days` : '',
     durationWeeks: weeks || null,

@@ -1,4 +1,4 @@
-const { toPublicFileUrl } = require('./publicFileUrl');
+const { toPublicFileUrl, toUploadsWebPath, extractUploadsWebPath } = require('./publicFileUrl');
 
 /** Persist full public URL (same shape as API responses) so DB rows work from Render/mobile. */
 const persistedUploadPublicUrl = (req, multerDiskPath) => {
@@ -17,7 +17,9 @@ const filePathToWebPath = (absPath) => {
 const shouldRewriteMediaString = (s) => {
   const t = String(s).trim();
   if (!t) return false;
-  if (/^https?:\/\//i.test(t)) return false;
+  if (/^https?:\/\//i.test(t)) {
+    return extractUploadsWebPath(t) != null;
+  }
   if (t.includes('/uploads/') || /\\uploads\\/i.test(t)) return true;
   if (/^[a-z]:\\.*uploads\\/i.test(t)) return true;
   return false;
@@ -34,7 +36,7 @@ const deepCloneJson = (obj) => {
 const remapMediaStringsInMixed = (req, node) => {
   if (node == null) return node;
   if (typeof node === 'string') {
-    return shouldRewriteMediaString(node) ? toPublicFileUrl(req, node) : node;
+    return shouldRewriteMediaString(node) ? toUploadsWebPath(node) : node;
   }
   if (Array.isArray(node)) return node.map((x) => remapMediaStringsInMixed(req, x));
   if (typeof node === 'object') {
@@ -375,8 +377,11 @@ const rewriteProgramMediaUrlsForResponse = (req, program) => {
         ? program.toJSON()
         : { ...program };
 
-  if (out.videoPath && shouldRewriteMediaString(out.videoPath)) {
-    out.videoPath = toPublicFileUrl(req, out.videoPath);
+  if (out.videoPath) {
+    out.videoPath = toUploadsWebPath(out.videoPath);
+  }
+  if (out.thumbnail_url) {
+    out.thumbnail_url = toUploadsWebPath(out.thumbnail_url);
   }
   if (out.recoveryProtocol != null) {
     out.recoveryProtocol = remapMediaStringsInMixed(req, deepCloneJson(out.recoveryProtocol));
