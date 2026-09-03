@@ -65,9 +65,51 @@ const parseCsvString = (value) => {
 const RECOMMENDED_PROGRAM_QUERY_SELECT =
   '_id programName subHeader overview durationWeeks avgSessionMinutes videoPath thumbnail_url workoutSkillLevel locationTag primaryGoal workoutPreference tags isGymRequired isHomeFriendly isQuickProgram isPrenatalProgram programCode daysPerWeek frequency createdAt';
 
-const parsePositiveInt = (v, fallback) => {
-  const n = parseInt(v, 10);
+/** Fields for admin program list (no exerciseLibrary / workouts payload). */
+const ADMIN_PROGRAM_LIST_SELECT =
+  'programName subHeader workoutSkillLevel durationWeeks frequencyPerWeek avgSessionMinutes status updatedAt createdAt programCode isDeleted';
+
+const parsePositiveInt = (value, fallback) => {
+  const n = Number.parseInt(String(value ?? ''), 10);
   return Number.isFinite(n) && n > 0 ? n : fallback;
+};
+
+const buildProgramTextSearchFilter = (q) => {
+  const regex = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+  return {
+    $or: [{ programName: regex }, { subHeader: regex }, { overview: regex }],
+  };
+};
+
+const buildProgramLevelFilter = (levelRaw) => {
+  if (!levelRaw || levelRaw.toLowerCase() === 'all') return null;
+  const escaped = levelRaw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (levelRaw.toLowerCase() === 'beginner') {
+    return {
+      $or: [
+        { workoutSkillLevel: new RegExp(`^Beginner$`, 'i') },
+        { workoutSkillLevel: new RegExp(`^Beg\\s*/\\s*Int$`, 'i') },
+      ],
+    };
+  }
+  if (levelRaw.toLowerCase() === 'intermediate') {
+    return {
+      $or: [
+        { workoutSkillLevel: new RegExp(`^Intermediate$`, 'i') },
+        { workoutSkillLevel: new RegExp(`^Beg\\s*/\\s*Int$`, 'i') },
+        { workoutSkillLevel: new RegExp(`^Intermediate\\s*/\\s*Advanced$`, 'i') },
+      ],
+    };
+  }
+  if (levelRaw.toLowerCase() === 'advanced') {
+    return {
+      $or: [
+        { workoutSkillLevel: new RegExp(`^Advanced$`, 'i') },
+        { workoutSkillLevel: new RegExp(`^Intermediate\\s*/\\s*Advanced$`, 'i') },
+      ],
+    };
+  }
+  return { workoutSkillLevel: new RegExp(`^${escaped}$`, 'i') };
 };
 
 const firstExerciseThumbnailUrl = (program) => {
@@ -459,20 +501,11 @@ const list = async (req, res) => {
 
     const filter = { isDeleted: { $ne: true } };
     if (q) {
-      const regex = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
-      filter.$or = [
-        { programName: regex },
-        { subHeader: regex },
-        { overview: regex },
-        { workoutSkillLevel: regex },
-      ];
+      Object.assign(filter, buildProgramTextSearchFilter(q));
     }
-    if (levelRaw && levelRaw.toLowerCase() !== 'all') {
-      const levelRegex = new RegExp(
-        `^${levelRaw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`,
-        'i'
-      );
-      filter.workoutSkillLevel = levelRegex;
+    const levelFilter = buildProgramLevelFilter(levelRaw);
+    if (levelFilter) {
+      Object.assign(filter, levelFilter);
     }
     if (statusRaw === 'active') filter.status = 'Active';
     else if (statusRaw === 'inactive') filter.status = 'Inactive';
@@ -481,6 +514,7 @@ const list = async (req, res) => {
 
     const [programs, total] = await Promise.all([
       Program.find(filter)
+        .select(ADMIN_PROGRAM_LIST_SELECT)
         .sort({ updatedAt: -1 })
         .skip((page - 1) * limit)
         .limit(limit)
@@ -489,7 +523,7 @@ const list = async (req, res) => {
     ]);
 
     return ok(res, {
-      programs: programs.map((p) => rewriteProgramMediaUrlsForResponse(req, p)),
+      programs,
       total,
       page,
       limit,
