@@ -1,8 +1,5 @@
 const https = require('https');
 
-const ONESIGNAL_API_HOST = 'onesignal.com';
-const ONESIGNAL_API_PATH = '/api/v1/notifications';
-
 const toBool = (value, defaultValue = true) => {
   if (value === undefined || value === null || value === '') return defaultValue;
   const v = String(value).trim().toLowerCase();
@@ -11,20 +8,79 @@ const toBool = (value, defaultValue = true) => {
   return defaultValue;
 };
 
-const postJson = (path, body, headers = {}) =>
+/** os_v2_app_ / os_v2_org_ keys → Key scheme; legacy REST keys → Basic. */
+const buildOneSignalAuthHeaders = (restApiKey, scheme = 'auto') => {
+  const key = String(restApiKey || '').trim();
+  if (!key) return {};
+  if (scheme === 'basic') return { Authorization: `Basic ${key}` };
+  if (scheme === 'key') return { Authorization: `Key ${key}` };
+  if (/^os_v2_(app|org)_/i.test(key)) return { Authorization: `Key ${key}` };
+  return { Authorization: `Basic ${key}` };
+};
+
+const defaultDeliveryTargets = (restApiKey) => {
+  const key = String(restApiKey || '').trim();
+  const isV2 = /^os_v2_(app|org)_/i.test(key);
+  const targets = [];
+
+  if (process.env.ONESIGNAL_API_HOST && process.env.ONESIGNAL_API_PATH) {
+    targets.push({
+      host: process.env.ONESIGNAL_API_HOST,
+      path: process.env.ONESIGNAL_API_PATH,
+      authScheme: isV2 ? 'key' : 'basic',
+      label: 'env override',
+    });
+  }
+
+  if (isV2) {
+    targets.push({
+      host: 'api.onesignal.com',
+      path: '/notifications',
+      authScheme: 'key',
+      label: 'v2 api.onesignal.com Key',
+    });
+  }
+
+  targets.push({
+    host: 'onesignal.com',
+    path: '/api/v1/notifications',
+    authScheme: isV2 ? 'key' : 'basic',
+    label: 'legacy onesignal.com',
+  });
+
+  if (isV2) {
+    targets.push({
+      host: 'onesignal.com',
+      path: '/api/v1/notifications',
+      authScheme: 'basic',
+      label: 'legacy onesignal.com Basic',
+    });
+  }
+
+  const seen = new Set();
+  return targets.filter((t) => {
+    const id = `${t.host}|${t.path}|${t.authScheme}`;
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+};
+
+const postJson = ({ hostname, path, body, headers = {} }) =>
   new Promise((resolve, reject) => {
     const payload = JSON.stringify(body);
     const rejectUnauthorized = toBool(process.env.ONESIGNAL_TLS_REJECT_UNAUTHORIZED, true);
 
     const req = https.request(
       {
-        hostname: ONESIGNAL_API_HOST,
+        hostname,
         path,
         method: 'POST',
         rejectUnauthorized,
         headers: {
           'Content-Type': 'application/json; charset=utf-8',
           'Content-Length': Buffer.byteLength(payload),
+          Accept: 'application/json',
           ...headers,
         },
       },
@@ -39,10 +95,16 @@ const postJson = (path, body, headers = {}) =>
           } catch (_) {
             parsed = { raw: data };
           }
-          if (statusCode >= 200 && statusCode < 300) return resolve(parsed);
-          const err = new Error(
-            (parsed && (parsed.errors || parsed.error)) || `OneSignal HTTP ${statusCode}`
-          );
+          if (statusCode >= 200 && statusCode < 300) {
+            parsed._httpStatus = statusCode;
+            return resolve(parsed);
+          }
+          const detail =
+            (Array.isArray(parsed?.errors) && parsed.errors.join('; ')) ||
+            parsed?.errors ||
+            parsed?.error ||
+            `OneSignal HTTP ${statusCode}`;
+          const err = new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
           err.statusCode = statusCode;
           err.response = parsed;
           return reject(err);
@@ -54,6 +116,32 @@ const postJson = (path, body, headers = {}) =>
     req.write(payload);
     req.end();
   });
+
+const postJsonWithFallback = async (restApiKey, body) => {
+  const targets = defaultDeliveryTargets(restApiKey);
+  let lastErr = null;
+
+  for (const target of targets) {
+    try {
+      const resp = await postJson({
+        hostname: target.host,
+        path: target.path,
+        body,
+        headers: buildOneSignalAuthHeaders(restApiKey, target.authScheme),
+      });
+      resp._deliveryEndpoint = `${target.host}${target.path} (${target.label})`;
+      return resp;
+    } catch (err) {
+      lastErr = err;
+      if (err.statusCode === 401 || err.statusCode === 403) continue;
+      throw err;
+    }
+  }
+
+  const err = lastErr || new Error('OneSignal request failed for all configured endpoints');
+  err.code = 'ONESIGNAL_AUTH_FAILED';
+  throw err;
+};
 
 const collectInvalidIds = (errors) => {
   if (!errors) return [];
@@ -87,7 +175,7 @@ const getOneSignalDeliveryError = (resp) => {
   if (isOneSignalDeliveryOk(resp)) return null;
   const invalid = collectInvalidIds(resp?.errors);
   if (invalid.length) {
-    return `OneSignal rejected recipient id(s): ${invalid.join(', ')}. Use subscription id from OneSignal dashboard (Audience → Subscriptions), and ensure Render ONESIGNAL_APP_ID matches the mobile app.`;
+    return `OneSignal rejected recipient id(s): ${invalid.join(', ')}. User must open the app and allow notifications so subscription id is saved via POST /api/user/profile/player-id.`;
   }
   if (Array.isArray(resp?.errors) && resp.errors.length) {
     return resp.errors.join('; ');
@@ -123,7 +211,6 @@ const sendOneSignalNotification = async ({
   }
 
   const recipientIds = (playerIds || []).map(String).filter(Boolean);
-  const authHeaders = { Authorization: `Basic ${restApiKey}` };
 
   if (sendToAll) {
     const segments = [
@@ -136,14 +223,10 @@ const sendOneSignalNotification = async ({
 
     for (const segment of tried) {
       try {
-        const resp = await postJson(
-          ONESIGNAL_API_PATH,
-          {
-            ...buildBasePayload({ appId, title, message, data }),
-            included_segments: [segment],
-          },
-          authHeaders
-        );
+        const resp = await postJsonWithFallback(restApiKey, {
+          ...buildBasePayload({ appId, title, message, data }),
+          included_segments: [segment],
+        });
         resp._deliveryMethod = `included_segments:${segment}`;
         return resp;
       } catch (err) {
@@ -162,13 +245,11 @@ const sendOneSignalNotification = async ({
     throw err;
   }
 
-  // Subscription ids only — avoid a second include_player_ids call (duplicate pushes on device).
   const tryDelivery = async (idsToTry) => {
-    const body = {
+    const resp = await postJsonWithFallback(restApiKey, {
       ...buildBasePayload({ appId, title, message, data }),
       include_subscription_ids: idsToTry,
-    };
-    const resp = await postJson(ONESIGNAL_API_PATH, body, authHeaders);
+    });
     resp._deliveryMethod = 'include_subscription_ids';
     return resp;
   };
@@ -192,4 +273,7 @@ module.exports = {
   isOneSignalDeliveryOk,
   getOneSignalDeliveryError,
   collectInvalidIds,
+  buildOneSignalAuthHeaders,
+  postJsonWithFallback,
+  defaultDeliveryTargets,
 };

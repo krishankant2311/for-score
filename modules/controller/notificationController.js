@@ -226,11 +226,19 @@ const deliverNotificationPush = async ({
     deliveryOk = isOneSignalDeliveryOk(onesignalResp);
     deliveryError = deliveryOk ? null : getOneSignalDeliveryError(onesignalResp);
   } catch (pushErr) {
-    deliveryError = pushErr?.message || 'Failed to send push notification';
+    const respErrors = pushErr?.response?.errors;
+    deliveryError =
+      (Array.isArray(respErrors) && respErrors.join('; ')) ||
+      (typeof respErrors === 'string' && respErrors) ||
+      pushErr?.message ||
+      'Failed to send push notification';
     onesignalResp = pushErr?.response || null;
     if (pushErr?.code === 'ONESIGNAL_ENV_MISSING') {
       deliveryError =
         'Push notifications are not configured on the server (ONESIGNAL_APP_ID / ONESIGNAL_REST_API_KEY).';
+    } else if (pushErr?.statusCode === 401) {
+      deliveryError =
+        'OneSignal rejected the API key. In OneSignal → Settings → Keys & IDs, create or rotate the App API Key (starts with os_v2_app_), then set ONESIGNAL_REST_API_KEY on the server and restart PM2.';
     }
   }
 
@@ -483,8 +491,8 @@ const sendNotificationByAdmin = async (req, res) => {
         onesignal: onesignalResp,
         hint:
           toAll
-            ? 'Verify ONESIGNAL_APP_ID and ONESIGNAL_REST_API_KEY on the server, and that your OneSignal app has an "All" or "Subscribed Users" segment.'
-            : 'Check Render env ONESIGNAL_APP_ID matches mobile app. In OneSignal → Audience → Subscriptions, copy Subscription ID (not User ID). Re-save via POST /api/user/profile/player-id from the app.',
+            ? 'Verify ONESIGNAL_APP_ID and ONESIGNAL_REST_API_KEY on the live server (.env), restart PM2, and confirm OneSignal has a "Subscribed Users" segment.'
+            : 'Ensure the user opened the app and allowed notifications (POST /api/user/profile/player-id). ONESIGNAL_APP_ID must match the mobile app.',
       });
     }
 

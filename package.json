@@ -16,6 +16,10 @@
     "normalize:upload-paths:dry": "node scripts/normalizeUploadPathsInDb.js --dry-run",
     "hydrate:uploads": "node scripts/hydrateUploadsFromPrograms.js",
     "hydrate:uploads:dry": "node scripts/hydrateUploadsFromPrograms.js --dry-run",
+    "test:onesignal": "node scripts/testOneSignalAuth.js",
+    "diagnose:onesignal": "node scripts/diagnoseOneSignal.js",
+    "test:notification-local": "node scripts/testLocalNotification.js",
+    "check:onesignal-subs": "node scripts/checkOneSignalSubscriptions.js",
     "test:email": "node scripts/testEmail.js",
     "verify:programs": "node scripts/verifyAllPrograms.js"
   },

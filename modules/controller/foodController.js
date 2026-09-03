@@ -98,6 +98,7 @@ const addFoodByAdmin = async (req, res) => {
       carbs,
       fats,
       category,
+      mealType,
       servingSize,
     } = req.body;
 
