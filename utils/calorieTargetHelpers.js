@@ -213,15 +213,45 @@ const calculateMacroGrams = (targetCalories) => {
   };
 };
 
+const ALLOWED_GOAL_DURATION_KEYS = ['8w', '12w', '16w', '24w'];
+
 const parseGoalDurationWeeks = (raw) => {
   if (raw == null || raw === '') return null;
   const s = String(raw).toLowerCase().trim();
   const preset = { '8w': 8, '12w': 12, '16w': 16, '24w': 24 };
   if (preset[s] != null) return preset[s];
-  const m = /^(\d+)\s*w(?:eeks?)?$/i.exec(s);
+  let m = /^(\d+)\s*w(?:eeks?)?$/i.exec(s);
   if (m) return Number(m[1]);
-  const n = Number(s);
+  m = /^(\d+)\s*weeks?$/i.exec(s);
+  if (m) return Number(m[1]);
+  const n = Number(s.replace(/[^\d.]/g, ''));
   return Number.isFinite(n) && n > 0 ? n : null;
+};
+
+/** Onboarding labels like "8 Weeks" → stored enum `8w`. */
+const normalizeGoalDurationKey = (raw) => {
+  const weeks = parseGoalDurationWeeks(raw);
+  if (weeks == null) return '';
+  const key = `${weeks}w`;
+  return ALLOWED_GOAL_DURATION_KEYS.includes(key) ? key : '';
+};
+
+/** Onboarding labels like "3 Days" / "6+ Days" → 3–6. */
+const normalizeWorkoutFrequency = (raw) => {
+  if (raw == null || raw === '') return null;
+  if (typeof raw === 'number' && [3, 4, 5, 6].includes(raw)) return raw;
+  const match = String(raw).match(/(\d+)/);
+  if (!match) return null;
+  const n = Number(match[1]);
+  if (n >= 6) return 6;
+  if ([3, 4, 5, 6].includes(n)) return n;
+  return null;
+};
+
+const formatGoalDurationLabel = (raw) => {
+  const weeks = parseGoalDurationWeeks(raw);
+  if (weeks == null) return '';
+  return `${weeks} week${weeks === 1 ? '' : 's'}`;
 };
 
 const evaluateGoalTimelineWarning = (user) => {
@@ -394,5 +424,9 @@ module.exports = {
   resolveProfileForCalories,
   isProfileOnboardingComplete,
   parseGoalDurationWeeks,
+  normalizeGoalDurationKey,
+  normalizeWorkoutFrequency,
+  formatGoalDurationLabel,
+  ALLOWED_GOAL_DURATION_KEYS,
   normalizeWeeklyGoalKey,
 };

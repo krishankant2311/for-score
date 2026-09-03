@@ -13,8 +13,12 @@ const {
   buildCalorieEngineResult,
   normalizeActivityFactorKey,
   normalizeWeeklyGoalKey,
+  normalizeGoalDurationKey,
+  normalizeWorkoutFrequency,
   ALLOWED_ACTIVITY_FACTOR_KEYS,
   isProfileOnboardingComplete,
+  parseGoalDurationWeeks,
+  formatGoalDurationLabel,
 } = require('../../utils/calorieTargetHelpers');
 const { isBlockedUser, sendBlockedUserResponse, BLOCKED_USER_MESSAGE } = require('../../utils/userAccessGuards');
 
@@ -42,6 +46,7 @@ const buildSignupProfileUpdate = (body) => {
     weight,
     age,
     fitnessGoal,
+    weeklyWeightGoal,
     activityFactor,
     activity_factor,
     workoutSkillLevel,
@@ -49,6 +54,7 @@ const buildSignupProfileUpdate = (body) => {
     fitnessTarget,
     targetweight,
     goalDuration,
+    goal_duration,
     workoutFrequency,
     lastWorkout: lastWorkoutBody,
     trainingLocation: trainingLocationBody,
@@ -93,9 +99,10 @@ const buildSignupProfileUpdate = (body) => {
     profileUpdate.age = Number(age);
   }
 
-  if (fitnessGoal) {
+  const weeklyGoalRaw = fitnessGoal ?? weeklyWeightGoal ?? body.weekly_weight_goal;
+  if (weeklyGoalRaw) {
     const allowedGoals = ['lose_1', 'lose_0_5', 'maintain', 'gain_0_5', 'gain_1'];
-    const goalVal = String(fitnessGoal).toLowerCase();
+    const goalVal = normalizeWeeklyGoalKey(weeklyGoalRaw);
     if (allowedGoals.includes(goalVal)) {
       profileUpdate.weeklyWeightGoal = goalVal;
       const calorieMap = { lose_1: -500, lose_0_5: -250, maintain: 0, gain_0_5: 250, gain_1: 500 };
@@ -129,19 +136,16 @@ const buildSignupProfileUpdate = (body) => {
     profileUpdate.targetweight = Number(targetweight);
   }
 
-  if (goalDuration) {
-    const gd = String(goalDuration).toLowerCase();
-    const allowedGD = ['8w', '12w', '16w', '24w'];
-    if (allowedGD.includes(gd)) {
-      profileUpdate.goalDuration = gd;
-    }
+  const goalDurationRaw = goalDuration ?? goal_duration;
+  if (goalDurationRaw) {
+    const gd = normalizeGoalDurationKey(goalDurationRaw);
+    if (gd) profileUpdate.goalDuration = gd;
   }
 
-  if (workoutFrequency != null && workoutFrequency !== '' && !Number.isNaN(Number(workoutFrequency))) {
-    const wf = Number(workoutFrequency);
-    if ([3, 4, 5, 6].includes(wf)) {
-      profileUpdate.workoutFrequency = wf;
-    }
+  const workoutFrequencyRaw = workoutFrequency ?? body.workout_frequency;
+  if (workoutFrequencyRaw != null && workoutFrequencyRaw !== '') {
+    const wf = normalizeWorkoutFrequency(workoutFrequencyRaw);
+    if (wf != null) profileUpdate.workoutFrequency = wf;
   }
 
   const lwParsed = parseLastWorkoutSignup(lastWorkout);
@@ -244,8 +248,11 @@ const attachProfilePhotoUrl = (req, data) => {
 const enrichUserProfileResponse = (req, userObj) => {
   const base = attachProfilePhotoUrl(req, userObj);
   const engine = buildCalorieEngineResult(userObj);
+  const goalWeeks = parseGoalDurationWeeks(userObj?.goalDuration);
   return {
     ...base,
+    goal_duration_weeks: goalWeeks,
+    goal_duration_label: goalWeeks != null ? formatGoalDurationLabel(userObj?.goalDuration) : '',
     calculations: engine.calculations,
     goal_timeline_warning: engine.goal_timeline_warning,
     activity_factor: engine.activity_factor,
@@ -1273,11 +1280,14 @@ const updateUserProfile = async (req, res, next) => {
     }
 
     if (body.goalDuration != null && body.goalDuration !== '') {
-      user.goalDuration = String(body.goalDuration).trim();
+      const gd = normalizeGoalDurationKey(body.goalDuration);
+      if (gd) user.goalDuration = gd;
     }
 
-    if (body.workoutFrequency != null && body.workoutFrequency !== '' && !Number.isNaN(Number(body.workoutFrequency))) {
-      user.workoutFrequency = Number(body.workoutFrequency);
+    const workoutFrequencyRaw = body.workoutFrequency ?? body.workout_frequency;
+    if (workoutFrequencyRaw != null && workoutFrequencyRaw !== '') {
+      const wf = normalizeWorkoutFrequency(workoutFrequencyRaw);
+      if (wf != null) user.workoutFrequency = wf;
     }
 
     const lastWorkoutRaw =
@@ -1294,7 +1304,8 @@ const updateUserProfile = async (req, res, next) => {
 
     const weeklyWeightGoalRaw = body.weeklyWeightGoal ?? body.fitnessGoal;
     if (weeklyWeightGoalRaw != null && weeklyWeightGoalRaw !== '') {
-      user.weeklyWeightGoal = String(weeklyWeightGoalRaw).trim();
+      const goalKey = normalizeWeeklyGoalKey(weeklyWeightGoalRaw);
+      if (goalKey) user.weeklyWeightGoal = goalKey;
     }
 
     if (body.calorieAdjustment != null && body.calorieAdjustment !== '' && !Number.isNaN(Number(body.calorieAdjustment))) {
@@ -2202,7 +2213,7 @@ const addFitnessGoal = async (req, res) => {
     }
 
     const allowed = ['lose_1', 'lose_0_5', 'maintain', 'gain_0_5', 'gain_1'];
-    const value = String(weeklyWeightGoal).toLowerCase().replace(/\s/g, '_');
+    const value = normalizeWeeklyGoalKey(weeklyWeightGoal);
     if (!allowed.includes(value)) {
       return res.status(400).json({
         success: false,
@@ -2315,12 +2326,11 @@ const addGoalDuration = async (req, res) => {
       });
     }
 
-    const allowed = ['8w', '12w', '16w', '24w'];
-    const value = String(goalDuration).toLowerCase();
-    if (!allowed.includes(value)) {
+    const value = normalizeGoalDurationKey(goalDuration);
+    if (!value) {
       return res.status(400).json({
         success: false,
-        message: 'Valid goalDuration is required (8w, 12w, 16w, 24w)',
+        message: 'Valid goalDuration is required (8w, 12w, 16w, 24w or labels like 8 Weeks)',
       });
     }
 
