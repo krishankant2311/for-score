@@ -5,7 +5,7 @@
 require('dotenv').config();
 const sendEmail = require('../modules/service/mailService');
 const { verifySmtpConnection } = require('../modules/service/mailService');
-const { getSignupOtpTemplate } = require('../modules/service/signupOtpTemplate');
+const { sendSignupVerificationEmail } = require('../modules/service/signupMailService');
 const { getResetPasswordTemplate } = require('../modules/service/resetPasswordTemplate');
 
 async function main() {
@@ -26,11 +26,7 @@ async function main() {
     process.exit(ok ? 0 : 1);
   }
 
-  const ok = await sendEmail(
-    process.env.SIGNUP_OTP_EMAIL_SUBJECT || 'Verify your Four Score account',
-    to,
-    getSignupOtpTemplate('123456')
-  );
+  const ok = await sendSignupVerificationEmail(to, '123456');
   process.exit(ok ? 0 : 1);
 }
 

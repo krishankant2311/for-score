@@ -6,7 +6,7 @@ const crypto = require('crypto');
 const { generateAccessToken } = require('../../middleware/jwt');
 const sendEmail = require('../service/mailService');
 const { getResetPasswordTemplate } = require('../service/resetPasswordTemplate');
-const { getSignupOtpTemplate } = require('../service/signupOtpTemplate');
+const { sendSignupVerificationEmail } = require('../service/signupMailService');
 const { verifyGoogleIdToken } = require('../service/googleAuthService');
 const { syncPrimaryWeightGoal } = require('./userGoalController');
 const {
@@ -302,7 +302,6 @@ const signup = async (req, res, next) => {
     const otp = generateSignupOtp();
     const otpExpiresAt = new Date(Date.now() + SIGNUP_OTP_TTL_MS);
     const otpSentAt = new Date();
-    const subject = process.env.SIGNUP_OTP_EMAIL_SUBJECT || 'Verify your Four Score account';
 
     if (existingUser) {
       await User.updateOne(
@@ -334,12 +333,8 @@ const signup = async (req, res, next) => {
       await safeSyncWeightGoal(created);
     }
 
-    const mailResult = await sendEmail(
-      subject,
-      emailTrimmed,
-      getSignupOtpTemplate(otp),
-    );
-    if (!mailResult) {
+    const mailSent = await sendSignupVerificationEmail(emailTrimmed, otp);
+    if (!mailSent) {
       return res.status(502).json({
         success: false,
         message: 'Could not send verification email. Please try again later.',
@@ -359,8 +354,8 @@ const signup = async (req, res, next) => {
 };
 
 /**
- * Same as signup, but returns OTP in the response (for app testing / QA).
- * Verify still via POST /api/user/verify-signup-otp
+ * Same as signup; optionally returns OTP in JSON when SIGNUP_RETURN_OTP_IN_RESPONSE=true (QA).
+ * Verify via POST /api/user/verify-signup-otp
  */
 const signupReturnOtp = async (req, res, next) => {
   try {
@@ -439,23 +434,27 @@ const signupReturnOtp = async (req, res, next) => {
       await safeSyncWeightGoal(created);
     }
 
-    // Best-effort email — do not fail signup if mail is unavailable
-    try {
-      const subject = process.env.SIGNUP_OTP_EMAIL_SUBJECT || 'Verify your Four Score account';
-      await sendEmail(subject, emailTrimmed, getSignupOtpTemplate(otp));
-    } catch (mailErr) {
-      console.warn('signupReturnOtp: email send skipped/failed:', mailErr?.message || mailErr);
+    const mailSent = await sendSignupVerificationEmail(emailTrimmed, otp);
+    if (!mailSent) {
+      return res.status(502).json({
+        success: false,
+        message: 'Could not send verification email. Please try again later.',
+      });
     }
+
+    const returnOtpInResponse =
+      String(process.env.SIGNUP_RETURN_OTP_IN_RESPONSE || '').trim().toLowerCase() ===
+      'true';
 
     const statusCode = existingUser ? 200 : 201;
     return res.status(statusCode).json({
       success: true,
-      message: 'Verification code generated. Use OTP from response to verify.',
+      message: 'Verification code sent to your email',
       requiresEmailVerification: true,
       result: {
         email: emailTrimmed,
-        otp,
         otpExpiresAt: otpExpiresAt.toISOString(),
+        ...(returnOtpInResponse ? { otp } : {}),
       },
     });
   } catch (err) {
@@ -528,9 +527,8 @@ const resendSignupOtp = async (req, res, next) => {
       }
     );
 
-    const subject = process.env.SIGNUP_OTP_EMAIL_SUBJECT || 'Verify your Four Score account';
-    const mailResult = await sendEmail(subject, email, getSignupOtpTemplate(otp));
-    if (!mailResult) {
+    const mailSent = await sendSignupVerificationEmail(email, otp);
+    if (!mailSent) {
       return res.status(502).json({
         success: false,
         message: 'Could not send verification email. Please try again later.',
