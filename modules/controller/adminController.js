@@ -64,9 +64,8 @@ const forgotPassword = async (req, res) => {
 
     const resetBaseUrl =
       process.env.ADMIN_RESET_PASSWORD_URL ||
-      process.env.USER_RESET_PASSWORD_URL ||
       process.env.FRONTEND_RESET_PASSWORD_URL ||
-      'https://for-score-frontend.vercel.app/reset-password';
+      'http://72.167.43.139:3001/admin/reset-password';
     const resetLink = `${resetBaseUrl}?token=${encodeURIComponent(resetToken)}`;
 
     const subject =

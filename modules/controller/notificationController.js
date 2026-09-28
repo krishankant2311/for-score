@@ -182,6 +182,42 @@ const normalizeRecipientMode = (raw) => {
   return 'custom';
 };
 
+const validateNotificationRecipients = ({
+  recipientMode,
+  deliveryMode,
+  toAll,
+  targetUserIds,
+  ids,
+}) => {
+  if (recipientMode === 'custom' && !targetUserIds.length) {
+    return 'Please select at least one user for Custom Selection';
+  }
+  if (deliveryMode !== 'draft' && !toAll && !targetUserIds.length && !ids.length) {
+    return 'sendToAll=true or at least one userId / playerId is required';
+  }
+  return null;
+};
+
+const buildNotificationBaseDoc = ({
+  title,
+  message,
+  data,
+  toAll,
+  targetUserIds,
+  notificationType,
+  recipientMode,
+  adminId,
+}) => ({
+  title: title.trim(),
+  message: message.trim(),
+  data: data && typeof data === 'object' ? data : {},
+  target: toAll ? 'All' : 'Users',
+  userIds: targetUserIds,
+  type: notificationType,
+  recipientMode,
+  createdByAdminId: adminId,
+});
+
 const parseScheduledAt = (raw) => {
   if (raw == null || raw === '') return null;
   const d = new Date(raw);
@@ -365,23 +401,30 @@ const sendNotificationByAdmin = async (req, res) => {
       userIds: mongoUserIdsBody,
     });
 
-    if (deliveryMode !== 'draft' && !toAll && !targetUserIds.length && !ids.length) {
+    const recipientError = validateNotificationRecipients({
+      recipientMode,
+      deliveryMode,
+      toAll,
+      targetUserIds,
+      ids,
+    });
+    if (recipientError) {
       return res.status(400).json({
         success: false,
-        message: 'sendToAll=true or at least one userId / playerId is required',
+        message: recipientError,
       });
     }
 
-    const baseDoc = {
-      title: title.trim(),
-      message: message.trim(),
-      data: data && typeof data === 'object' ? data : {},
-      target: toAll ? 'All' : 'Users',
-      userIds: targetUserIds,
-      type: notificationType,
+    const baseDoc = buildNotificationBaseDoc({
+      title,
+      message,
+      data,
+      toAll,
+      targetUserIds,
+      notificationType,
       recipientMode,
-      createdByAdminId: admin._id,
-    };
+      adminId: admin._id,
+    });
 
     if (deliveryMode === 'draft') {
       const doc = await Notification.create({
@@ -540,6 +583,13 @@ const getAllNotificationsAdmin = async (req, res) => {
       query.status = statusMap[statusRaw.toLowerCase()];
     }
 
+    const searchRaw = String(req.query.search ?? '').trim();
+    if (searchRaw) {
+      const escaped = searchRaw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const re = { $regex: escaped, $options: 'i' };
+      query.$or = [{ title: re }, { message: re }, { type: re }, { recipientMode: re }];
+    }
+
     const [items, total, sentCount, scheduledCount, draftCount] = await Promise.all([
       Notification.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
       Notification.countDocuments(query),
@@ -573,6 +623,246 @@ const getAllNotificationsAdmin = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Internal server error',
+      error: err.message,
+    });
+  }
+};
+
+// GET /api/admin/get-notification-byadmin/:id
+const getNotificationByIdAdmin = async (req, res) => {
+  try {
+    const admin = await getValidAdmin(req.token);
+    if (!admin) {
+      return res.status(400).json({
+        success: false,
+        message: 'Admin not found or inactive',
+      });
+    }
+
+    const { id } = req.params;
+    const item = await Notification.findById(id).lean();
+    if (!item) {
+      return res.status(404).json({
+        success: false,
+        message: 'Notification not found',
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: 'Notification fetched successfully',
+      result: {
+        ...item,
+        scheduledAt: item.scheduledAt ? new Date(item.scheduledAt).toISOString() : null,
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: err.message,
+    });
+  }
+};
+
+// POST /api/admin/update-notification-byadmin/:id
+// Same body as send-notification; only Draft notifications can be updated/published.
+const updateNotificationByAdmin = async (req, res) => {
+  try {
+    const admin = await getValidAdmin(req.token);
+    if (!admin) {
+      return res.status(400).json({
+        success: false,
+        message: 'Admin not found or inactive',
+      });
+    }
+
+    const { id } = req.params;
+    const existing = await Notification.findById(id);
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        message: 'Notification not found',
+      });
+    }
+    if (existing.status !== 'Draft') {
+      return res.status(400).json({
+        success: false,
+        message: 'Only draft notifications can be edited',
+      });
+    }
+
+    const {
+      title,
+      message,
+      sendToAll,
+      playerIds,
+      userIds: mongoUserIdsBody,
+      data,
+      deliveryMode: deliveryModeBody,
+      action,
+      scheduledAt: scheduledAtBody,
+      type,
+      recipientMode: recipientModeBody,
+    } = req.body;
+
+    if (!title?.trim() || !message?.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'title and message are required',
+      });
+    }
+
+    const deliveryMode = normalizeDeliveryMode(deliveryModeBody ?? action);
+    const recipientMode = normalizeRecipientMode(recipientModeBody);
+    const notificationType = String(type ?? 'General').trim() || 'General';
+
+    const { toAll, allMongoUserIds, ids, targetUserIds } = await resolveRecipients({
+      sendToAll,
+      playerIds,
+      userIds: mongoUserIdsBody,
+    });
+
+    const recipientError = validateNotificationRecipients({
+      recipientMode,
+      deliveryMode,
+      toAll,
+      targetUserIds,
+      ids,
+    });
+    if (recipientError) {
+      return res.status(400).json({
+        success: false,
+        message: recipientError,
+      });
+    }
+
+    const baseDoc = buildNotificationBaseDoc({
+      title,
+      message,
+      data,
+      toAll,
+      targetUserIds,
+      notificationType,
+      recipientMode,
+      adminId: admin._id,
+    });
+
+    if (deliveryMode === 'draft') {
+      Object.assign(existing, {
+        ...baseDoc,
+        status: 'Draft',
+        scheduledAt: null,
+        error: '',
+      });
+      await existing.save();
+      return res.json({
+        success: true,
+        message: 'Draft updated successfully',
+        result: existing,
+      });
+    }
+
+    if (deliveryMode === 'schedule') {
+      const scheduledAt = parseScheduledAt(scheduledAtBody);
+      if (!scheduledAt) {
+        return res.status(400).json({
+          success: false,
+          message: 'scheduledAt is required for scheduled notifications',
+        });
+      }
+      if (scheduledAt.getTime() <= Date.now()) {
+        return res.status(400).json({
+          success: false,
+          message: 'scheduledAt must be a future date and time',
+        });
+      }
+
+      Object.assign(existing, {
+        ...baseDoc,
+        status: 'Scheduled',
+        scheduledAt,
+        error: '',
+        onesignal: {
+          notificationId: '',
+          playerIds: [],
+          deliveryMethod: '',
+          raw: {},
+        },
+      });
+      await existing.save();
+      return res.json({
+        success: true,
+        message: 'Notification scheduled successfully',
+        result: existing,
+      });
+    }
+
+    if (!toAll && allMongoUserIds.length && !ids.length) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'Selected user(s) have no OneSignal subscription id. Ask them to open the app and allow notifications.',
+        userIds: allMongoUserIds,
+      });
+    }
+
+    if (!toAll && !ids.length) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'sendToAll=true or playerIds (OneSignal UUID) / userIds (Mongo _id) with saved subscription is required',
+      });
+    }
+
+    const { onesignalResp, deliveryOk, deliveryError, sentPlayerIds } =
+      await deliverNotificationPush({
+        title,
+        message,
+        data,
+        toAll,
+        allMongoUserIds,
+        ids,
+      });
+
+    Object.assign(existing, {
+      ...baseDoc,
+      scheduledAt: null,
+      onesignal: {
+        notificationId: onesignalResp?.id || '',
+        playerIds: toAll ? [] : deliveryOk ? sentPlayerIds : ids,
+        deliveryMethod: onesignalResp?._deliveryMethod || '',
+        raw: onesignalResp || {},
+      },
+      status: deliveryOk ? 'Sent' : 'Failed',
+      error: deliveryError || '',
+    });
+    await existing.save();
+
+    if (!deliveryOk) {
+      const statusCode =
+        deliveryError && deliveryError.includes('not configured on the server') ? 503 : 502;
+      return res.status(statusCode).json({
+        success: false,
+        message: 'Push notification was not delivered by OneSignal',
+        error: deliveryError,
+        result: existing,
+        onesignal: onesignalResp,
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: 'Notification sent successfully',
+      result: existing,
+      onesignal: onesignalResp,
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to update notification',
       error: err.message,
     });
   }
@@ -785,6 +1075,8 @@ const markNotificationRead = async (req, res) => {
 module.exports = {
   sendNotificationByAdmin,
   getAllNotificationsAdmin,
+  getNotificationByIdAdmin,
+  updateNotificationByAdmin,
   getNotificationsForUser,
   markAllNotificationsRead,
   markNotificationRead,

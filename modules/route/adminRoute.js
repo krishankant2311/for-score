@@ -106,6 +106,8 @@ const {
 const {
   sendNotificationByAdmin,
   getAllNotificationsAdmin,
+  getNotificationByIdAdmin,
+  updateNotificationByAdmin,
 } = require('../controller/notificationController');
 const {
   getAppSettings,
@@ -278,6 +280,8 @@ router.post('/delete-foods/:id', upload.none(), verifyAccessToken, deleteFoodByA
 // Notifications (Admin)
 router.post('/send-notification', upload.none(), verifyAccessToken, sendNotificationByAdmin);
 router.get('/get-all-notifications', upload.none(), verifyAccessToken, getAllNotificationsAdmin);
+router.get('/get-notification-byadmin/:id', upload.none(), verifyAccessToken, getNotificationByIdAdmin);
+router.post('/update-notification-byadmin/:id', upload.none(), verifyAccessToken, updateNotificationByAdmin);
 
 // Nutrition Cheat Sheet (macro quick reference — admin CRUD)
 router.post('/delete-nutrition-cheat-sheet/:id', upload.none(), verifyAccessToken, deleteNutritionCheatSheetItem);
