@@ -1,17 +1,17 @@
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
-// Access Token generate (short expiry)
+// Access Token generate (expires in 365 days)
 const generateAccessToken = (payload) => {
   return jwt.sign(payload, process.env.JWT_ACCESS_SECRET, {
-    expiresIn: '60days',
+    expiresIn: process.env.JWT_ACCESS_EXPIRES_IN || '365d',
   });
 };
 
-// Refresh Token generate (long expiry)
+// Refresh Token generate (expires in 365 days)
 const generateRefreshToken = (payload) => {
   return jwt.sign(payload, process.env.JWT_REFRESH_SECRET, {
-    expiresIn: '7d',
+    expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '365d',
   });
 };
 
