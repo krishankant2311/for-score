@@ -984,6 +984,7 @@ const refreshUserToken = async (req, res, next) => {
       req.body?.refreshToken ||
       req.headers['refreshtoken'] ||
       req.headers['refresh-token'] ||
+      req.headers['token'] ||
       req.headers.authorization?.replace(/^Bearer\s+/i, '');
 
     if (!incomingRefreshToken) {
