@@ -3,7 +3,11 @@ const WorkoutLog = require('../model/workoutLogModel');
 const { Admin } = require('../model/adminModel');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
-const { generateAccessToken } = require('../../middleware/jwt');
+const {
+  generateAccessToken,
+  generateRefreshToken,
+  verifyRefreshToken,
+} = require('../../middleware/jwt');
 const sendEmail = require('../service/mailService');
 const { getResetPasswordTemplate } = require('../service/resetPasswordTemplate');
 const { sendSignupVerificationEmail } = require('../service/signupMailService');
@@ -642,6 +646,7 @@ const verifySignupOtp = async (req, res, next) => {
 
     const payload = { _id: fresh._id, email: fresh.email };
     const token = generateAccessToken(payload);
+    const refreshToken = generateRefreshToken(payload);
     const userObj = fresh.toObject();
     delete userObj.password;
 
@@ -649,6 +654,7 @@ const verifySignupOtp = async (req, res, next) => {
       success: true,
       message: 'Email verified. Account activated.',
       token,
+      refreshToken,
       data: attachProfilePhotoUrl(req, userObj),
     });
   } catch (err) {
@@ -744,6 +750,7 @@ const googleSignup = async (req, res, next) => {
         const onboardingComplete = isProfileOnboardingComplete(existing);
         const payload = { _id: existing._id, email: existing.email };
         const token = generateAccessToken(payload);
+        const refreshToken = generateRefreshToken(payload);
         const userObj = existing.toObject();
         delete userObj.password;
         return res.status(200).json({
@@ -754,6 +761,7 @@ const googleSignup = async (req, res, next) => {
           isNewUser: false,
           requiresOnboarding: !onboardingComplete,
           token,
+          refreshToken,
           data: enrichUserProfileResponse(req, userObj),
         });
       }
@@ -784,6 +792,7 @@ const googleSignup = async (req, res, next) => {
 
     const payload = { _id: user._id, email: user.email };
     const token = generateAccessToken(payload);
+    const refreshToken = generateRefreshToken(payload);
     const userObj = user.toObject();
     delete userObj.password;
 
@@ -795,6 +804,7 @@ const googleSignup = async (req, res, next) => {
       isNewUser: true,
       requiresOnboarding: !onboardingComplete,
       token,
+      refreshToken,
       data: enrichUserProfileResponse(req, userObj),
     });
   } catch (err) {
@@ -878,6 +888,7 @@ const googleAuth = async (req, res, next) => {
 
     const payload = { _id: user._id, email: user.email };
     const token = generateAccessToken(payload);
+    const refreshToken = generateRefreshToken(payload);
     const userObj = user.toObject();
     delete userObj.password;
 
@@ -889,6 +900,7 @@ const googleAuth = async (req, res, next) => {
       isNewUser: false,
       requiresOnboarding: !onboardingComplete,
       token,
+      refreshToken,
       data: enrichUserProfileResponse(req, userObj),
     });
   } catch (err) {
@@ -948,6 +960,7 @@ const login = async (req, res, next) => {
 
     const payload = { _id: user._id, email: user.email };
     const token = generateAccessToken(payload);
+    const refreshToken = generateRefreshToken(payload);
 
     const userObj = user.toObject();
     delete userObj.password;
@@ -956,7 +969,69 @@ const login = async (req, res, next) => {
       success: true,
       message: 'Login successful',
       token,
+      refreshToken,
       data: attachProfilePhotoUrl(req, userObj),
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// POST /api/user/refresh-token — refresh access token using valid refresh token
+const refreshUserToken = async (req, res, next) => {
+  try {
+    const incomingRefreshToken =
+      req.body?.refreshToken ||
+      req.headers['refreshtoken'] ||
+      req.headers['refresh-token'] ||
+      req.headers.authorization?.replace(/^Bearer\s+/i, '');
+
+    if (!incomingRefreshToken) {
+      return res.status(400).json({
+        success: false,
+        message: 'refreshToken is required',
+      });
+    }
+
+    const decoded = verifyRefreshToken(incomingRefreshToken);
+    if (!decoded || !decoded._id) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid or expired refresh token. Please login again.',
+      });
+    }
+
+    const user = await User.findById(decoded._id);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    if (user.status === 'Deleted') {
+      return res.status(400).json({
+        success: false,
+        message: 'This account has been deleted',
+      });
+    }
+
+    if (user.status === 'Blocked') {
+      return res.status(403).json({
+        success: false,
+        message: BLOCKED_USER_MESSAGE,
+      });
+    }
+
+    const payload = { _id: user._id, email: user.email };
+    const newToken = generateAccessToken(payload);
+    const newRefreshToken = generateRefreshToken(payload);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Token refreshed successfully',
+      token: newToken,
+      refreshToken: newRefreshToken,
     });
   } catch (err) {
     next(err);
@@ -2581,6 +2656,7 @@ module.exports = {
   googleAuth,
   googleSignup,
   login,
+  refreshUserToken,
   forgotPassword,
   resetPassword,
   getUserProfile,

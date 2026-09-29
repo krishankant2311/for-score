@@ -9,6 +9,7 @@ const {
   verifySignupOtp,
   resendSignupOtp,
   login,
+  refreshUserToken,
   googleAuth,
   googleSignup,
   forgotPassword,
@@ -200,6 +201,7 @@ router.post('/signup-return-otp', upload.none(), signupReturnOtp);
 router.post('/verify-signup-otp', upload.none(), verifySignupOtp);
 router.post('/resend-signup-otp', upload.none(), resendSignupOtp);
 router.post('/login', upload.none(), login);
+router.post('/refresh-token', upload.none(), refreshUserToken);
 router.post('/auth/google/signup', upload.none(), googleSignup);
 router.post('/auth/google', upload.none(), googleAuth);
 router.post('/forgot-password', upload.none(), forgotPassword);

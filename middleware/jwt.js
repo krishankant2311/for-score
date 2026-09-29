@@ -8,10 +8,10 @@ const generateAccessToken = (payload) => {
   });
 };
 
-// Refresh Token generate (expires in 365 days)
+// Refresh Token generate (expires in 730 days)
 const generateRefreshToken = (payload) => {
   return jwt.sign(payload, process.env.JWT_REFRESH_SECRET, {
-    expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '365d',
+    expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '730d',
   });
 };
 
