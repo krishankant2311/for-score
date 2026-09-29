@@ -61,6 +61,38 @@ const foodSchema = new mongoose.Schema(
       type: Number,
       default: null,
     },
+    calories_per_serving: {
+      type: Number,
+      default: 0,
+    },
+    protein_g_per_serving: {
+      type: Number,
+      default: 0,
+    },
+    carbs_g_per_serving: {
+      type: Number,
+      default: 0,
+    },
+    fat_g_per_serving: {
+      type: Number,
+      default: 0,
+    },
+    calories_per_100g: {
+      type: Number,
+      default: 0,
+    },
+    protein_g_per_100g: {
+      type: Number,
+      default: 0,
+    },
+    carbs_g_per_100g: {
+      type: Number,
+      default: 0,
+    },
+    fat_g_per_100g: {
+      type: Number,
+      default: 0,
+    },
     servingSizes: [
       {
         servingDescription: { type: String, default: '' },

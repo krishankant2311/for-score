@@ -108,6 +108,11 @@ async function syncFoods() {
       const carbs = parseNumber(row.getCell(8).value);
       const fats = parseNumber(row.getCell(9).value);
 
+      const cal100 = Math.max(0, Math.round(parseNumber(row.getCell(10).value)));
+      const protein100 = parseNumber(row.getCell(11).value);
+      const carbs100 = parseNumber(row.getCell(12).value);
+      const fats100 = parseNumber(row.getCell(13).value);
+
       const fiber = parseNumber(row.getCell(14).value);
       const sugar = parseNumber(row.getCell(15).value);
       const sodium = parseNumber(row.getCell(16).value);
@@ -129,6 +134,14 @@ async function syncFoods() {
               protein,
               carbs,
               fats,
+              calories_per_serving: cal > 9999 ? 9999 : cal,
+              protein_g_per_serving: protein,
+              carbs_g_per_serving: carbs,
+              fat_g_per_serving: fats,
+              calories_per_100g: cal100,
+              protein_g_per_100g: protein100,
+              carbs_g_per_100g: carbs100,
+              fat_g_per_100g: fats100,
               fiber,
               sugar,
               sodium,
@@ -182,6 +195,11 @@ async function syncFoods() {
       const sodium = parseNumber(row.getCell(13).value);
       const upc = String(row.getCell(14).value || '').trim();
 
+      const cal100 = servingGrams > 0 ? Math.round((cal / servingGrams) * 100) : cal;
+      const protein100 = servingGrams > 0 ? Math.round((protein / servingGrams) * 100 * 100) / 100 : protein;
+      const carbs100 = servingGrams > 0 ? Math.round((carbs / servingGrams) * 100 * 100) / 100 : carbs;
+      const fats100 = servingGrams > 0 ? Math.round((fats / servingGrams) * 100 * 100) / 100 : fats;
+
       const servingSize = servingDesc || (servingGrams ? `${servingGrams} g` : '100 g');
       const mappedCategory = mapUsdaCategory(rawCat, { protein, carbs, fats });
 
@@ -199,6 +217,14 @@ async function syncFoods() {
               protein,
               carbs,
               fats,
+              calories_per_serving: cal > 9999 ? 9999 : cal,
+              protein_g_per_serving: protein,
+              carbs_g_per_serving: carbs,
+              fat_g_per_serving: fats,
+              calories_per_100g: cal100,
+              protein_g_per_100g: protein100,
+              carbs_g_per_100g: carbs100,
+              fat_g_per_100g: fats100,
               fiber,
               sugar,
               sodium,
