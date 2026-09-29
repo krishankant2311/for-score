@@ -1305,10 +1305,12 @@ const updateUserProfile = async (req, res, next) => {
     const weeklyWeightGoalRaw = body.weeklyWeightGoal ?? body.fitnessGoal;
     if (weeklyWeightGoalRaw != null && weeklyWeightGoalRaw !== '') {
       const goalKey = normalizeWeeklyGoalKey(weeklyWeightGoalRaw);
-      if (goalKey) user.weeklyWeightGoal = goalKey;
-    }
-
-    if (body.calorieAdjustment != null && body.calorieAdjustment !== '' && !Number.isNaN(Number(body.calorieAdjustment))) {
+      if (goalKey) {
+        user.weeklyWeightGoal = goalKey;
+        const calorieMap = { lose_1: -500, lose_0_5: -250, maintain: 0, gain_0_5: 250, gain_1: 500 };
+        user.calorieAdjustment = calorieMap[goalKey] ?? 0;
+      }
+    } else if (body.calorieAdjustment != null && body.calorieAdjustment !== '' && !Number.isNaN(Number(body.calorieAdjustment))) {
       user.calorieAdjustment = Number(body.calorieAdjustment);
     }
 
@@ -2222,7 +2224,7 @@ const addFitnessGoal = async (req, res) => {
     }
 
     const calorieMap = { lose_1: -500, lose_0_5: -250, maintain: 0, gain_0_5: 250, gain_1: 500 };
-    const calAdjust = calorieAdjustment != null ? Number(calorieAdjustment) : calorieMap[value];
+    const calAdjust = calorieMap[value] ?? (calorieAdjustment != null ? Number(calorieAdjustment) : 0);
 
     const user = await User.findById(user_id);
     if (!user) {

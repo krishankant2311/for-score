@@ -92,14 +92,14 @@ const normalizeActivityFactorKey = (raw) => {
 };
 
 const getCalorieAdjustmentForUser = (user) => {
+  const key = normalizeWeeklyGoalKey(user?.weeklyWeightGoal);
+  if (key && Object.prototype.hasOwnProperty.call(WEEKLY_GOAL_CALORIE_MAP, key)) {
+    return WEEKLY_GOAL_CALORIE_MAP[key];
+  }
   const stored = user?.calorieAdjustment;
   if (stored != null && stored !== '' && !Number.isNaN(Number(stored))) {
     const n = Number(stored);
     if (ALLOWED_CALORIE_ADJUSTMENTS.includes(n)) return n;
-  }
-  const key = normalizeWeeklyGoalKey(user?.weeklyWeightGoal);
-  if (key && Object.prototype.hasOwnProperty.call(WEEKLY_GOAL_CALORIE_MAP, key)) {
-    return WEEKLY_GOAL_CALORIE_MAP[key];
   }
   return 0;
 };
