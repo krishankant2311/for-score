@@ -403,7 +403,7 @@ const resolveMealItemMacros = (food, body, qty = 1) => {
   };
 };
 
-// 1B. Schedule a meal item from food catalog using food id
+// 1B. Schedule one or multiple meal items from food catalog using food id(s)
 const scheduleMealByFoodId = async (req, res) => {
   try {
     const user_id = req.token?._id;
@@ -420,53 +420,120 @@ const scheduleMealByFoodId = async (req, res) => {
     }
 
     const { date, mealType, foodId, quantity, mealTime, notes } = req.body;
-    if (!mealType || !foodId) {
+    if (!mealType) {
       return res.status(400).json({
         success: false,
-        message: 'mealType and foodId are required',
+        message: 'mealType is required',
       });
+    }
+
+    // Support both multiple foods (items or foods array) and single food (foodId)
+    let incomingItems = [];
+    const rawItems = req.body.items ?? req.body.foods;
+    if (Array.isArray(rawItems)) {
+      incomingItems = rawItems;
+    } else if (typeof rawItems === 'string' && rawItems.trim()) {
+      try {
+        const parsed = JSON.parse(rawItems);
+        if (Array.isArray(parsed)) incomingItems = parsed;
+      } catch (e) {
+        return res.status(400).json({
+          success: false,
+          message: 'items must be a valid JSON array',
+        });
+      }
+    }
+
+    if (!incomingItems.length) {
+      if (!foodId) {
+        return res.status(400).json({
+          success: false,
+          message: 'foodId or items array is required',
+        });
+      }
+      incomingItems = [
+        {
+          foodId,
+          quantity,
+          mealTime,
+          notes,
+          servingSize: req.body.servingSize ?? req.body.serving_size,
+          servingGrams: req.body.servingGrams ?? req.body.serving_grams,
+          calories: req.body.calories ?? req.body.calorie,
+          protein: req.body.protein ?? req.body.proteins,
+          carbs: req.body.carbs ?? req.body.carb,
+          fats: req.body.fats ?? req.body.fat,
+          calories_per_serving: req.body.calories_per_serving,
+          protein_g_per_serving: req.body.protein_g_per_serving ?? req.body.protein_per_serving,
+          carbs_g_per_serving: req.body.carbs_g_per_serving ?? req.body.carbs_per_serving,
+          fat_g_per_serving:
+            req.body.fat_g_per_serving ??
+            req.body.fats_g_per_serving ??
+            req.body.fat_per_serving ??
+            req.body.fats_per_serving,
+          itemIndex: req.body.itemIndex ?? req.body.index,
+          itemId: req.body.itemId,
+          name: req.body.name,
+        },
+      ];
     }
 
     const normalizedDate = normalizeDate(date);
-    const food = await Food.findOne({ _id: foodId, status: { $ne: 'Deleted' } }).lean();
-    if (!food) {
-      return res.status(404).json({
-        success: false,
-        message: 'Food not found',
-      });
-    }
-
-    const qty = quantity != null && quantity !== '' ? Number(quantity) : 1;
-    if (Number.isNaN(qty) || qty <= 0) {
+    const foodIds = [...new Set(incomingItems.map((it) => it.foodId).filter(Boolean))];
+    if (!foodIds.length) {
       return res.status(400).json({
         success: false,
-        message: 'quantity must be a valid positive number',
+        message: 'Each item must have a valid foodId',
       });
     }
 
-    const macroData = resolveMealItemMacros(food, req.body, qty);
+    const foods = await Food.find({ _id: { $in: foodIds }, status: { $ne: 'Deleted' } }).lean();
+    const foodMap = new Map(foods.map((f) => [String(f._id), f]));
 
-    const item = {
-      foodId: food._id,
-      nutritionItemId: null,
-      name: (req.body.name && String(req.body.name).trim()) || food.name,
-      calories: macroData.calories,
-      protein: macroData.protein,
-      carbs: macroData.carbs,
-      fats: macroData.fats,
-      quantity: qty,
-      mealTime: (mealTime || '').trim(),
-      servingSize: macroData.servingSize,
-      servingGrams: macroData.servingGrams,
-      calories_per_serving: macroData.calories_per_serving,
-      protein_g_per_serving: macroData.protein_g_per_serving,
-      carbs_g_per_serving: macroData.carbs_g_per_serving,
-      fat_g_per_serving: macroData.fat_g_per_serving,
-      calories_per_100g: macroData.calories_per_100g,
-      protein_g_per_100g: macroData.protein_g_per_100g,
-      carbs_g_per_100g: macroData.carbs_g_per_100g,
-      fat_g_per_100g: macroData.fat_g_per_100g,
-    };
+    const processedItems = [];
+    for (const rawIt of incomingItems) {
+      const fId = String(rawIt.foodId || '').trim();
+      const food = foodMap.get(fId);
+      if (!food) {
+        return res.status(404).json({
+          success: false,
+          message: `Food not found for id: ${fId}`,
+        });
+      }
+
+      const qty = rawIt.quantity != null && rawIt.quantity !== '' ? Number(rawIt.quantity) : 1;
+      if (Number.isNaN(qty) || qty <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: `quantity must be a valid positive number for food: ${food.name}`,
+        });
+      }
+
+      const macroData = resolveMealItemMacros(food, rawIt, qty);
+      processedItems.push({
+        foodId: food._id,
+        nutritionItemId: null,
+        name: (rawIt.name && String(rawIt.name).trim()) || food.name,
+        calories: macroData.calories,
+        protein: macroData.protein,
+        carbs: macroData.carbs,
+        fats: macroData.fats,
+        quantity: qty,
+        mealTime: (rawIt.mealTime || mealTime || '').trim(),
+        servingSize: macroData.servingSize,
+        servingGrams: macroData.servingGrams,
+        calories_per_serving: macroData.calories_per_serving,
+        protein_g_per_serving: macroData.protein_g_per_serving,
+        carbs_g_per_serving: macroData.carbs_g_per_serving,
+        fat_g_per_serving: macroData.fat_g_per_serving,
+        calories_per_100g: macroData.calories_per_100g,
+        protein_g_per_100g: macroData.protein_g_per_100g,
+        carbs_g_per_100g: macroData.carbs_g_per_100g,
+        fat_g_per_100g: macroData.fat_g_per_100g,
+        _itemIndex: rawIt.itemIndex ?? rawIt.index ?? null,
+        _itemId: rawIt.itemId ?? null,
+      });
+    }
 
     let log = null;
     const reqLogId = req.body.mealLogId ?? req.body.logId ?? req.body.id;
@@ -487,56 +554,50 @@ const scheduleMealByFoodId = async (req, res) => {
       });
     }
 
-    // Determine target item index if editing existing scheduled meal
-    let targetItemIndex = -1;
-    if (log && Array.isArray(log.items) && log.items.length > 0) {
-      const rawIndex = req.body.itemIndex ?? req.body.index;
-      if (rawIndex != null && rawIndex !== '' && Number.isInteger(Number(rawIndex))) {
-        const idx = Number(rawIndex);
-        if (idx >= 0 && idx < log.items.length) {
-          targetItemIndex = idx;
-        }
-      }
-
-      if (targetItemIndex < 0 && req.body.itemId) {
-        const targetId = String(req.body.itemId).trim();
-        targetItemIndex = log.items.findIndex(
-          (it) => String(it._id || '') === targetId || String(it.foodId || '') === targetId
-        );
-      }
-
-      // If not explicitly indexed, check if an item with this foodId is already in the meal log
-      if (targetItemIndex < 0) {
-        const existingFoodIndex = log.items.findIndex(
-          (it) => it.foodId && String(it.foodId) === String(food._id)
-        );
-        if (existingFoodIndex >= 0) {
-          targetItemIndex = existingFoodIndex;
-        }
-      }
-    }
-
-    let projectedTotal = 0;
-    if (log && targetItemIndex >= 0) {
-      const otherItemsCalories = log.items.reduce((sum, it, idx) => {
-        if (idx === targetItemIndex) return sum;
-        return sum + (Number(it.calories) || 0);
-      }, 0);
-      const newMealCalories = otherItemsCalories + item.calories;
-
-      projectedTotal = await getProjectedDailyCalories({
-        userId: user_id,
-        normalizedDate,
-        replaceLogId: log._id,
-        replacementCalories: newMealCalories,
-      });
+    let finalItems = [];
+    if (!log) {
+      finalItems = processedItems.map(({ _itemIndex, _itemId, ...rest }) => rest);
     } else {
-      projectedTotal = await getProjectedDailyCalories({
-        userId: user_id,
-        normalizedDate,
-        addCalories: item.calories,
-      });
+      finalItems = [...(log.items || [])];
+      for (const pItem of processedItems) {
+        const { _itemIndex, _itemId, ...cleanItem } = pItem;
+        let matchIdx = -1;
+
+        if (_itemIndex != null && Number.isInteger(Number(_itemIndex))) {
+          const idx = Number(_itemIndex);
+          if (idx >= 0 && idx < finalItems.length) matchIdx = idx;
+        }
+
+        if (matchIdx < 0 && _itemId) {
+          matchIdx = finalItems.findIndex(
+            (it) => String(it._id || '') === String(_itemId) || String(it.foodId || '') === String(_itemId)
+          );
+        }
+
+        if (matchIdx < 0) {
+          matchIdx = finalItems.findIndex(
+            (it) => it.foodId && String(it.foodId) === String(cleanItem.foodId)
+          );
+        }
+
+        if (matchIdx >= 0) {
+          finalItems[matchIdx] = {
+            ...(finalItems[matchIdx]?.toObject ? finalItems[matchIdx].toObject() : finalItems[matchIdx]),
+            ...cleanItem,
+          };
+        } else {
+          finalItems.push(cleanItem);
+        }
+      }
     }
+
+    const newMealCalories = finalItems.reduce((sum, it) => sum + (Number(it.calories) || 0), 0);
+    const projectedTotal = await getProjectedDailyCalories({
+      userId: user_id,
+      normalizedDate,
+      replaceLogId: log?._id || null,
+      replacementCalories: newMealCalories,
+    });
 
     if (
       await rejectIfDailyCalorieLimitExceeded({
@@ -555,29 +616,23 @@ const scheduleMealByFoodId = async (req, res) => {
         userId: user_id,
         date: normalizedDate,
         mealType,
-        items: [item],
+        items: finalItems,
         notes: (notes || '').trim(),
         isCompleted: true,
         completedAt: new Date(),
       });
     } else {
-      if (targetItemIndex >= 0) {
-        log.items[targetItemIndex] = {
-          ...(log.items[targetItemIndex]?.toObject ? log.items[targetItemIndex].toObject() : log.items[targetItemIndex]),
-          ...item,
-        };
-      } else {
-        log.items.push(item);
-      }
+      log.items = finalItems;
       if (notes != null) log.notes = (notes || '').trim();
       log.isCompleted = true;
       log.completedAt = new Date();
       await log.save();
     }
 
+    const isUpdate = !!(log && processedItems.length === 1 && incomingItems[0]?._itemIndex != null);
     return res.json({
       success: true,
-      message: targetItemIndex >= 0 ? 'Meal updated successfully' : 'Meal scheduled successfully',
+      message: isUpdate ? 'Meal updated successfully' : 'Meal scheduled successfully',
       result: enrichMealLogForResponse(log.toObject ? log.toObject() : log),
     });
   } catch (err) {
