@@ -31,18 +31,6 @@ const nutritionCheatSheetSchema = new mongoose.Schema(
       min: 0,
       max: 9999,
     },
-    protein: {
-      type: Number,
-      default: 0,
-    },
-    carbs: {
-      type: Number,
-      default: 0,
-    },
-    fats: {
-      type: Number,
-      default: 0,
-    },
     sortOrder: {
       type: Number,
       default: 0,
