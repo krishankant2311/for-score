@@ -47,6 +47,42 @@ const mealItemSchema = new mongoose.Schema(
       default: '',
       trim: true,
     },
+    servingGrams: {
+      type: Number,
+      default: null,
+    },
+    calories_per_serving: {
+      type: Number,
+      default: null,
+    },
+    protein_g_per_serving: {
+      type: Number,
+      default: null,
+    },
+    carbs_g_per_serving: {
+      type: Number,
+      default: null,
+    },
+    fat_g_per_serving: {
+      type: Number,
+      default: null,
+    },
+    calories_per_100g: {
+      type: Number,
+      default: null,
+    },
+    protein_g_per_100g: {
+      type: Number,
+      default: null,
+    },
+    carbs_g_per_100g: {
+      type: Number,
+      default: null,
+    },
+    fat_g_per_100g: {
+      type: Number,
+      default: null,
+    },
   },
   { _id: false }
 );

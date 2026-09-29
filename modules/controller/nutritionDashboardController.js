@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const User = require('../model/userModel');
 const NutritionItem = require('../model/nutritionItemModel');
 const MealLog = require('../model/mealLogModel');
@@ -94,6 +95,15 @@ const addOrUpdateMealLog = async (req, res) => {
         quantity: qty,
         mealTime: (it.mealTime || '').trim(),
         servingSize: (it.servingSize || '').trim(),
+        servingGrams: it.servingGrams != null && it.servingGrams !== '' ? Number(it.servingGrams) : null,
+        calories_per_serving: it.calories_per_serving != null && it.calories_per_serving !== '' ? Number(it.calories_per_serving) : null,
+        protein_g_per_serving: (it.protein_g_per_serving ?? it.protein_per_serving) != null && (it.protein_g_per_serving ?? it.protein_per_serving) !== '' ? Number(it.protein_g_per_serving ?? it.protein_per_serving) : null,
+        carbs_g_per_serving: (it.carbs_g_per_serving ?? it.carbs_per_serving) != null && (it.carbs_g_per_serving ?? it.carbs_per_serving) !== '' ? Number(it.carbs_g_per_serving ?? it.carbs_per_serving) : null,
+        fat_g_per_serving: (it.fat_g_per_serving ?? it.fats_g_per_serving ?? it.fat_per_serving ?? it.fats_per_serving) != null && (it.fat_g_per_serving ?? it.fats_g_per_serving ?? it.fat_per_serving ?? it.fats_per_serving) !== '' ? Number(it.fat_g_per_serving ?? it.fats_g_per_serving ?? it.fat_per_serving ?? it.fats_per_serving) : null,
+        calories_per_100g: it.calories_per_100g != null && it.calories_per_100g !== '' ? Number(it.calories_per_100g) : null,
+        protein_g_per_100g: it.protein_g_per_100g != null && it.protein_g_per_100g !== '' ? Number(it.protein_g_per_100g) : null,
+        carbs_g_per_100g: it.carbs_g_per_100g != null && it.carbs_g_per_100g !== '' ? Number(it.carbs_g_per_100g) : null,
+        fat_g_per_100g: it.fat_g_per_100g != null && it.fat_g_per_100g !== '' ? Number(it.fat_g_per_100g) : null,
       };
     });
 
@@ -172,6 +182,227 @@ const addOrUpdateMealLog = async (req, res) => {
   }
 };
 
+const roundMacro2 = (n) =>
+  n == null || Number.isNaN(Number(n)) ? 0 : Math.round(Number(n) * 100) / 100;
+const roundCal = (n) =>
+  n == null || Number.isNaN(Number(n)) ? 0 : Math.round(Number(n));
+
+const resolveMealItemMacros = (food, body, qty = 1) => {
+  const rawServingSize = body.servingSize ?? body.serving_size;
+  const servingSize =
+    rawServingSize != null && String(rawServingSize).trim() !== ''
+      ? String(rawServingSize).trim()
+      : (food.servingSize || '').trim();
+
+  // 1. Resolve serving grams
+  let servingGrams = null;
+  const rawServingGrams = body.servingGrams ?? body.serving_grams;
+  if (rawServingGrams != null && rawServingGrams !== '' && !Number.isNaN(Number(rawServingGrams))) {
+    servingGrams = Number(rawServingGrams);
+  } else if (Array.isArray(food.servingSizes) && food.servingSizes.length > 0) {
+    const match = food.servingSizes.find(
+      (s) => s?.label && s.label.trim().toLowerCase() === servingSize.toLowerCase()
+    );
+    if (match && match.grams != null && !Number.isNaN(Number(match.grams))) {
+      servingGrams = Number(match.grams);
+    }
+  }
+
+  if (servingGrams == null) {
+    const gMatch = servingSize.match(/(\d+(?:\.\d+)?)\s*g(?:rams?)?\b/i);
+    if (gMatch) {
+      servingGrams = parseFloat(gMatch[1]);
+    } else if (food.servingGrams != null && !Number.isNaN(Number(food.servingGrams))) {
+      servingGrams = Number(food.servingGrams);
+    }
+  }
+
+  // 2. Base 100g macros from food
+  const cal100 = food.calories_per_100g != null ? Number(food.calories_per_100g) : null;
+  const pro100 = food.protein_g_per_100g != null ? Number(food.protein_g_per_100g) : null;
+  const carb100 = food.carbs_g_per_100g != null ? Number(food.carbs_g_per_100g) : null;
+  const fat100 = food.fat_g_per_100g != null ? Number(food.fat_g_per_100g) : null;
+
+  // 3. Base food per-serving defaults
+  const baseCalPerServing =
+    food.calories_per_serving != null
+      ? Number(food.calories_per_serving)
+      : food.calories != null
+      ? Number(food.calories)
+      : 0;
+  const baseProPerServing =
+    food.protein_g_per_serving != null
+      ? Number(food.protein_g_per_serving)
+      : food.protein != null
+      ? Number(food.protein)
+      : 0;
+  const baseCarbPerServing =
+    food.carbs_g_per_serving != null
+      ? Number(food.carbs_g_per_serving)
+      : food.carbs != null
+      ? Number(food.carbs)
+      : 0;
+  const baseFatPerServing =
+    food.fat_g_per_serving != null
+      ? Number(food.fat_g_per_serving)
+      : food.fats != null
+      ? Number(food.fats)
+      : 0;
+
+  // 4. Check explicit per-serving macros from request
+  const reqCalPerServing =
+    body.calories_per_serving != null && body.calories_per_serving !== ''
+      ? Number(body.calories_per_serving)
+      : null;
+  const reqProPerServing =
+    (body.protein_g_per_serving ?? body.protein_per_serving) != null &&
+    (body.protein_g_per_serving ?? body.protein_per_serving) !== ''
+      ? Number(body.protein_g_per_serving ?? body.protein_per_serving)
+      : null;
+  const reqCarbPerServing =
+    (body.carbs_g_per_serving ?? body.carbs_per_serving) != null &&
+    (body.carbs_g_per_serving ?? body.carbs_per_serving) !== ''
+      ? Number(body.carbs_g_per_serving ?? body.carbs_per_serving)
+      : null;
+  const reqFatPerServing =
+    (body.fat_g_per_serving ??
+      body.fats_g_per_serving ??
+      body.fat_per_serving ??
+      body.fats_per_serving) != null &&
+    (body.fat_g_per_serving ??
+      body.fats_g_per_serving ??
+      body.fat_per_serving ??
+      body.fats_per_serving) !== ''
+      ? Number(
+          body.fat_g_per_serving ??
+            body.fats_g_per_serving ??
+            body.fat_per_serving ??
+            body.fats_per_serving
+        )
+      : null;
+
+  // 5. Check direct macros from request (e.g. calories, protein, carbs, fats/fat)
+  const reqCalories =
+    (body.calories ?? body.calorie) != null && (body.calories ?? body.calorie) !== ''
+      ? Number(body.calories ?? body.calorie)
+      : null;
+  const reqProtein =
+    (body.protein ?? body.proteins) != null && (body.protein ?? body.proteins) !== ''
+      ? Number(body.protein ?? body.proteins)
+      : null;
+  const reqCarbs =
+    (body.carbs ?? body.carb) != null && (body.carbs ?? body.carb) !== ''
+      ? Number(body.carbs ?? body.carb)
+      : null;
+  const reqFats =
+    (body.fats ?? body.fat) != null && (body.fats ?? body.fat) !== ''
+      ? Number(body.fats ?? body.fat)
+      : null;
+
+  // Calculate default per-serving from servingGrams / 100g ratio if available
+  let calculatedCalPerServing = baseCalPerServing;
+  let calculatedProPerServing = baseProPerServing;
+  let calculatedCarbPerServing = baseCarbPerServing;
+  let calculatedFatPerServing = baseFatPerServing;
+
+  let baseFoodGrams = null;
+  if (food.servingGrams != null && !Number.isNaN(Number(food.servingGrams))) {
+    baseFoodGrams = Number(food.servingGrams);
+  } else if (food.servingSize) {
+    const baseGMatch = String(food.servingSize).match(/(\d+(?:\.\d+)?)\s*g(?:rams?)?\b/i);
+    if (baseGMatch) baseFoodGrams = parseFloat(baseGMatch[1]);
+  }
+
+  if (servingGrams != null && cal100 != null) {
+    calculatedCalPerServing = (cal100 * servingGrams) / 100;
+    if (pro100 != null) calculatedProPerServing = (pro100 * servingGrams) / 100;
+    if (carb100 != null) calculatedCarbPerServing = (carb100 * servingGrams) / 100;
+    if (fat100 != null) calculatedFatPerServing = (fat100 * servingGrams) / 100;
+  } else if (servingGrams != null && baseFoodGrams != null && baseFoodGrams > 0) {
+    const ratio = servingGrams / baseFoodGrams;
+    calculatedCalPerServing = baseCalPerServing * ratio;
+    calculatedProPerServing = baseProPerServing * ratio;
+    calculatedCarbPerServing = baseCarbPerServing * ratio;
+    calculatedFatPerServing = baseFatPerServing * ratio;
+  }
+
+  // Resolve final per-serving and total macros:
+  let finalCalPerServing = reqCalPerServing ?? calculatedCalPerServing;
+  let finalProPerServing = reqProPerServing ?? calculatedProPerServing;
+  let finalCarbPerServing = reqCarbPerServing ?? calculatedCarbPerServing;
+  let finalFatPerServing = reqFatPerServing ?? calculatedFatPerServing;
+
+  let finalTotalCalories = null;
+  let finalTotalProtein = null;
+  let finalTotalCarbs = null;
+  let finalTotalFats = null;
+
+  if (reqCalories != null && !Number.isNaN(reqCalories)) {
+    if (qty === 1) {
+      finalTotalCalories = reqCalories;
+      finalCalPerServing = reqCalories;
+    } else {
+      finalTotalCalories = reqCalories;
+      finalCalPerServing = reqCalPerServing ?? roundMacro2(reqCalories / qty);
+    }
+  } else {
+    finalTotalCalories = finalCalPerServing * qty;
+  }
+
+  if (reqProtein != null && !Number.isNaN(reqProtein)) {
+    if (qty === 1) {
+      finalTotalProtein = reqProtein;
+      finalProPerServing = reqProtein;
+    } else {
+      finalTotalProtein = reqProtein;
+      finalProPerServing = reqProPerServing ?? roundMacro2(reqProtein / qty);
+    }
+  } else {
+    finalTotalProtein = finalProPerServing * qty;
+  }
+
+  if (reqCarbs != null && !Number.isNaN(reqCarbs)) {
+    if (qty === 1) {
+      finalTotalCarbs = reqCarbs;
+      finalCarbPerServing = reqCarbs;
+    } else {
+      finalTotalCarbs = reqCarbs;
+      finalCarbPerServing = reqCarbPerServing ?? roundMacro2(reqCarbs / qty);
+    }
+  } else {
+    finalTotalCarbs = finalCarbPerServing * qty;
+  }
+
+  if (reqFats != null && !Number.isNaN(reqFats)) {
+    if (qty === 1) {
+      finalTotalFats = reqFats;
+      finalFatPerServing = reqFats;
+    } else {
+      finalTotalFats = reqFats;
+      finalFatPerServing = reqFatPerServing ?? roundMacro2(reqFats / qty);
+    }
+  } else {
+    finalTotalFats = finalFatPerServing * qty;
+  }
+
+  return {
+    servingSize,
+    servingGrams: servingGrams != null ? roundMacro2(servingGrams) : null,
+    calories: roundCal(finalTotalCalories),
+    protein: roundMacro2(finalTotalProtein),
+    carbs: roundMacro2(finalTotalCarbs),
+    fats: roundMacro2(finalTotalFats),
+    calories_per_serving: roundCal(finalCalPerServing),
+    protein_g_per_serving: roundMacro2(finalProPerServing),
+    carbs_g_per_serving: roundMacro2(finalCarbPerServing),
+    fat_g_per_serving: roundMacro2(finalFatPerServing),
+    calories_per_100g: cal100,
+    protein_g_per_100g: pro100,
+    carbs_g_per_100g: carb100,
+    fat_g_per_100g: fat100,
+  };
+};
+
 // 1B. Schedule a meal item from food catalog using food id
 const scheduleMealByFoodId = async (req, res) => {
   try {
@@ -213,31 +444,100 @@ const scheduleMealByFoodId = async (req, res) => {
       });
     }
 
+    const macroData = resolveMealItemMacros(food, req.body, qty);
+
     const item = {
       foodId: food._id,
       nutritionItemId: null,
-      name: food.name,
-      calories: (food.calories || 0) * qty,
-      protein: (food.protein || 0) * qty,
-      carbs: (food.carbs || 0) * qty,
-      fats: (food.fats || 0) * qty,
+      name: (req.body.name && String(req.body.name).trim()) || food.name,
+      calories: macroData.calories,
+      protein: macroData.protein,
+      carbs: macroData.carbs,
+      fats: macroData.fats,
       quantity: qty,
       mealTime: (mealTime || '').trim(),
-      servingSize: (food.servingSize || '').trim(),
+      servingSize: macroData.servingSize,
+      servingGrams: macroData.servingGrams,
+      calories_per_serving: macroData.calories_per_serving,
+      protein_g_per_serving: macroData.protein_g_per_serving,
+      carbs_g_per_serving: macroData.carbs_g_per_serving,
+      fat_g_per_serving: macroData.fat_g_per_serving,
+      calories_per_100g: macroData.calories_per_100g,
+      protein_g_per_100g: macroData.protein_g_per_100g,
+      carbs_g_per_100g: macroData.carbs_g_per_100g,
+      fat_g_per_100g: macroData.fat_g_per_100g,
     };
 
-    let log = await MealLog.findOne({
-      userId: user_id,
-      date: normalizedDate,
-      mealType,
-      status: { $ne: 'Deleted' },
-    });
+    let log = null;
+    const reqLogId = req.body.mealLogId ?? req.body.logId ?? req.body.id;
+    if (reqLogId && mongoose.Types.ObjectId.isValid(String(reqLogId))) {
+      log = await MealLog.findOne({
+        _id: reqLogId,
+        userId: user_id,
+        status: { $ne: 'Deleted' },
+      });
+    }
 
-    const projectedTotal = await getProjectedDailyCalories({
-      userId: user_id,
-      normalizedDate,
-      addCalories: item.calories,
-    });
+    if (!log) {
+      log = await MealLog.findOne({
+        userId: user_id,
+        date: normalizedDate,
+        mealType,
+        status: { $ne: 'Deleted' },
+      });
+    }
+
+    // Determine target item index if editing existing scheduled meal
+    let targetItemIndex = -1;
+    if (log && Array.isArray(log.items) && log.items.length > 0) {
+      const rawIndex = req.body.itemIndex ?? req.body.index;
+      if (rawIndex != null && rawIndex !== '' && Number.isInteger(Number(rawIndex))) {
+        const idx = Number(rawIndex);
+        if (idx >= 0 && idx < log.items.length) {
+          targetItemIndex = idx;
+        }
+      }
+
+      if (targetItemIndex < 0 && req.body.itemId) {
+        const targetId = String(req.body.itemId).trim();
+        targetItemIndex = log.items.findIndex(
+          (it) => String(it._id || '') === targetId || String(it.foodId || '') === targetId
+        );
+      }
+
+      // If not explicitly indexed, check if an item with this foodId is already in the meal log
+      if (targetItemIndex < 0) {
+        const existingFoodIndex = log.items.findIndex(
+          (it) => it.foodId && String(it.foodId) === String(food._id)
+        );
+        if (existingFoodIndex >= 0) {
+          targetItemIndex = existingFoodIndex;
+        }
+      }
+    }
+
+    let projectedTotal = 0;
+    if (log && targetItemIndex >= 0) {
+      const otherItemsCalories = log.items.reduce((sum, it, idx) => {
+        if (idx === targetItemIndex) return sum;
+        return sum + (Number(it.calories) || 0);
+      }, 0);
+      const newMealCalories = otherItemsCalories + item.calories;
+
+      projectedTotal = await getProjectedDailyCalories({
+        userId: user_id,
+        normalizedDate,
+        replaceLogId: log._id,
+        replacementCalories: newMealCalories,
+      });
+    } else {
+      projectedTotal = await getProjectedDailyCalories({
+        userId: user_id,
+        normalizedDate,
+        addCalories: item.calories,
+      });
+    }
+
     if (
       await rejectIfDailyCalorieLimitExceeded({
         res,
@@ -261,7 +561,14 @@ const scheduleMealByFoodId = async (req, res) => {
         completedAt: new Date(),
       });
     } else {
-      log.items.push(item);
+      if (targetItemIndex >= 0) {
+        log.items[targetItemIndex] = {
+          ...(log.items[targetItemIndex]?.toObject ? log.items[targetItemIndex].toObject() : log.items[targetItemIndex]),
+          ...item,
+        };
+      } else {
+        log.items.push(item);
+      }
       if (notes != null) log.notes = (notes || '').trim();
       log.isCompleted = true;
       log.completedAt = new Date();
@@ -270,7 +577,7 @@ const scheduleMealByFoodId = async (req, res) => {
 
     return res.json({
       success: true,
-      message: 'Meal scheduled successfully',
+      message: targetItemIndex >= 0 ? 'Meal updated successfully' : 'Meal scheduled successfully',
       result: enrichMealLogForResponse(log.toObject ? log.toObject() : log),
     });
   } catch (err) {
