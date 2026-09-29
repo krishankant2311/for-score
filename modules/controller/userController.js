@@ -982,6 +982,7 @@ const refreshUserToken = async (req, res, next) => {
   try {
     const incomingRefreshToken =
       req.body?.refreshToken ||
+      req.body?.token ||
       req.headers['refreshtoken'] ||
       req.headers['refresh-token'] ||
       req.headers['token'] ||
