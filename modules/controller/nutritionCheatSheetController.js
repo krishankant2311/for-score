@@ -35,6 +35,32 @@ const getValidAdmin = async (token) => {
 
 const getValidUserId = (token) => token?._id || null;
 
+const formatCheatSheetItem = (row) => {
+  if (!row) return row;
+  const mt = (row.macroType || '').toLowerCase();
+  const grams = Number(row.macroAmountGrams) || 0;
+
+  const protein = row.protein != null && row.protein !== 0
+    ? Number(row.protein)
+    : (mt === 'protein' ? grams : 0);
+
+  const carbs = row.carbs != null && row.carbs !== 0
+    ? Number(row.carbs)
+    : (mt === 'carb' ? grams : 0);
+
+  const fats = row.fats != null && row.fats !== 0
+    ? Number(row.fats)
+    : (row.fat != null && row.fat !== 0 ? Number(row.fat) : (mt === 'fat' ? grams : 0));
+
+  return {
+    ...row,
+    protein,
+    carbs,
+    fats,
+    fat: fats,
+  };
+};
+
 // ---------------- Admin ----------------
 
 const addNutritionCheatSheetItem = async (req, res) => {
@@ -47,7 +73,7 @@ const addNutritionCheatSheetItem = async (req, res) => {
       });
     }
 
-    const { name, servingSize, macroType, macroAmountGrams, calories, sortOrder } = req.body;
+    const { name, servingSize, macroType, macroAmountGrams, calories, sortOrder, protein, carbs, fats, fat } = req.body;
 
     if (!name?.trim() || !servingSize?.trim() || !macroType || macroAmountGrams == null || calories == null) {
       return res.status(400).json({
@@ -74,12 +100,19 @@ const addNutritionCheatSheetItem = async (req, res) => {
       });
     }
 
+    const p = protein != null && protein !== '' ? Number(protein) : (mt === 'protein' ? grams : 0);
+    const c = carbs != null && carbs !== '' ? Number(carbs) : (mt === 'carb' ? grams : 0);
+    const f = fats != null && fats !== '' ? Number(fats) : (fat != null && fat !== '' ? Number(fat) : (mt === 'fat' ? grams : 0));
+
     const item = await NutritionCheatSheet.create({
       name: name.trim(),
       servingSize: servingSize.trim(),
       macroType: mt,
       macroAmountGrams: grams,
       calories: cal,
+      protein: p,
+      carbs: c,
+      fats: f,
       sortOrder: sortOrder != null && sortOrder !== '' ? Number(sortOrder) : 0,
       createdBy: admin._id,
     });
@@ -87,7 +120,7 @@ const addNutritionCheatSheetItem = async (req, res) => {
     return res.json({
       success: true,
       message: 'Nutrition cheat sheet item added successfully',
-      result: item,
+      result: formatCheatSheetItem(item.toObject ? item.toObject() : item),
     });
   } catch (err) {
     console.error(err);
@@ -157,7 +190,7 @@ const getAllNutritionCheatSheetAdmin = async (req, res) => {
 
     const agg = await NutritionCheatSheet.aggregate(pipeline);
     const facet = agg[0] || { items: [], totalCount: [] };
-    const items = facet.items || [];
+    const items = (facet.items || []).map(formatCheatSheetItem);
     const total = facet.totalCount?.[0]?.count ?? 0;
 
     return res.json({
@@ -203,7 +236,7 @@ const getNutritionCheatSheetByIdAdmin = async (req, res) => {
     return res.json({
       success: true,
       message: 'Nutrition cheat sheet item fetched successfully',
-      result: item,
+      result: formatCheatSheetItem(item),
     });
   } catch (err) {
     console.error(err);
@@ -226,7 +259,7 @@ const updateNutritionCheatSheetItem = async (req, res) => {
     }
 
     const { id } = req.params;
-    const { name, servingSize, macroType, macroAmountGrams, calories, sortOrder, status } = req.body;
+    const { name, servingSize, macroType, macroAmountGrams, calories, sortOrder, status, protein, carbs, fats, fat } = req.body;
 
     const item = await NutritionCheatSheet.findById(id);
     if (!item) {
@@ -268,6 +301,10 @@ const updateNutritionCheatSheetItem = async (req, res) => {
     item.macroType = mt;
     item.macroAmountGrams = grams;
     item.calories = cal;
+    if (protein !== undefined) item.protein = Number(protein) || 0;
+    if (carbs !== undefined) item.carbs = Number(carbs) || 0;
+    if (fats !== undefined) item.fats = Number(fats) || 0;
+    else if (fat !== undefined) item.fats = Number(fat) || 0;
     if (sortOrder != null && sortOrder !== '') item.sortOrder = Number(sortOrder);
     if (status && ['Active', 'Deleted'].includes(status)) item.status = status;
 
@@ -276,7 +313,7 @@ const updateNutritionCheatSheetItem = async (req, res) => {
     return res.json({
       success: true,
       message: 'Nutrition cheat sheet item updated successfully',
-      result: item,
+      result: formatCheatSheetItem(item.toObject ? item.toObject() : item),
     });
   } catch (err) {
     console.error(err);
@@ -354,12 +391,12 @@ const getNutritionCheatSheetForUser = async (req, res) => {
 
     const items = await NutritionCheatSheet.find({ status: 'Active' })
       .sort({ macroType: 1, sortOrder: 1, createdAt: 1 })
-      .select('name servingSize macroType macroAmountGrams calories sortOrder createdAt updatedAt')
+      .select('name servingSize macroType macroAmountGrams calories protein carbs fats sortOrder createdAt updatedAt')
       .lean();
 
     const byMacro = { protein: [], carb: [], fat: [] };
     for (const row of items) {
-      if (byMacro[row.macroType]) byMacro[row.macroType].push(row);
+      if (byMacro[row.macroType]) byMacro[row.macroType].push(formatCheatSheetItem(row));
     }
 
     const sections = SECTION_ORDER.map((macroType) => ({
@@ -407,7 +444,7 @@ const getNutritionCheatSheetByIdForUser = async (req, res) => {
 
     const { id } = req.params;
     const item = await NutritionCheatSheet.findOne({ _id: id, status: 'Active' })
-      .select('name servingSize macroType macroAmountGrams calories sortOrder createdAt updatedAt')
+      .select('name servingSize macroType macroAmountGrams calories protein carbs fats sortOrder createdAt updatedAt')
       .lean();
 
     if (!item) {
@@ -421,7 +458,7 @@ const getNutritionCheatSheetByIdForUser = async (req, res) => {
       success: true,
       message: 'Nutrition cheat sheet item fetched successfully',
       result: {
-        ...item,
+        ...formatCheatSheetItem(item),
         sectionTitle: SECTION_BY_MACRO[item.macroType] || '',
       },
     });
