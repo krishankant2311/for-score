@@ -57,6 +57,44 @@ const foodSchema = new mongoose.Schema(
       default: '',
       trim: true,
     },
+    servingGrams: {
+      type: Number,
+      default: null,
+    },
+    servingSizes: [
+      {
+        servingDescription: { type: String, default: '' },
+        servingGrams: { type: Number, default: 0 },
+        calories: { type: Number, default: 0 },
+        protein: { type: Number, default: 0 },
+        carbs: { type: Number, default: 0 },
+        fats: { type: Number, default: 0 },
+      },
+    ],
+    fiber: {
+      type: Number,
+      default: 0,
+    },
+    sugar: {
+      type: Number,
+      default: 0,
+    },
+    sodium: {
+      type: Number,
+      default: 0,
+    },
+    brand: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    upc: {
+      type: String,
+      default: '',
+      trim: true,
+      index: true,
+      sparse: true,
+    },
     image: {
       type: String,
       default: '',
@@ -74,7 +112,7 @@ const foodSchema = new mongoose.Schema(
       index: true,
       sparse: true,
     },
-    /** e.g. usda-sr-legacy — bulk seeds only; admin manual adds leave empty */
+    /** e.g. usda-sr-legacy, usda-branded — bulk seeds only; admin manual adds leave empty */
     seedSource: {
       type: String,
       default: '',
@@ -84,6 +122,9 @@ const foodSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+foodSchema.index({ status: 1, name: 1 });
+foodSchema.index({ status: 1, category: 1 });
 
 const Food = mongoose.model('Food', foodSchema);
 
