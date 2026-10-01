@@ -123,6 +123,7 @@ const {
 const {
   addFoodByAdmin,
   getAllFoods,
+  getAllFoodCategories,
   getFoodById,
   updateFoodByAdmin,
   deleteFoodByAdmin,
@@ -273,6 +274,7 @@ router.post('/delete-plan/:id', upload.none(), verifyAccessToken, deletePlan);
 // Foods (Admin CRUD for user Add Food catalog)
 router.post('/add-foods', verifyAccessToken, upload.single('image'), addFoodByAdmin);
 router.get('/get-all-foods', upload.none(), verifyAccessToken, getAllFoods);
+router.get('/get-all-food-categories', upload.none(), verifyAccessToken, getAllFoodCategories);
 router.get('/get-foods/:id', upload.none(), verifyAccessToken, getFoodById);
 router.post('/update-foods/:id', verifyAccessToken, upload.single('image'), updateFoodByAdmin);
 router.post('/delete-foods/:id', upload.none(), verifyAccessToken, deleteFoodByAdmin);

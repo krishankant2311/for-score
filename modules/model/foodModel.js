@@ -36,8 +36,8 @@ const foodSchema = new mongoose.Schema(
     },
     category: {
       type: String,
-      enum: ['Protein', 'Carbs', 'Vegetables', 'Fruit', 'Fats', 'Other'],
       default: 'Other',
+      trim: true,
     },
     mealType: {
       type: String,
@@ -157,6 +157,8 @@ const foodSchema = new mongoose.Schema(
 
 foodSchema.index({ status: 1, name: 1 });
 foodSchema.index({ status: 1, category: 1 });
+foodSchema.index({ status: 1, createdAt: -1 });
+foodSchema.index({ status: 1, category: 1, createdAt: -1 });
 
 const Food = mongoose.model('Food', foodSchema);
 

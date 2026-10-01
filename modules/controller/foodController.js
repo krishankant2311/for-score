@@ -19,7 +19,35 @@ const validateFoodName = (name) => {
   return null;
 };
 
+// Legacy category reference (category is now open string, no enum restriction)
 const allowedCategories = ['Protein', 'Carbs', 'Vegetables', 'Fruit', 'Fats', 'Other'];
+
+const buildCategoryFilter = (rawCategory) => {
+  if (!rawCategory || String(rawCategory).toLowerCase() === 'all') return null;
+  const trimmed = String(rawCategory).trim();
+  const lower = trimmed.toLowerCase();
+
+  // 1. Common macro group fallbacks (handles mobile app macro filters):
+  if (lower === 'fruit' || lower === 'fruits') {
+    return { $regex: /fruit/i };
+  }
+  if (lower === 'vegetable' || lower === 'vegetables') {
+    return { $regex: /vegetable/i };
+  }
+  if (lower === 'fat' || lower === 'fats' || lower === 'healthy fats') {
+    return { $regex: /fat/i };
+  }
+  if (lower === 'protein' || lower === 'proteins') {
+    return { $regex: /protein|poultry|beef|pork|finfish|shellfish|lamb|veal|game|sausages|meat/i };
+  }
+  if (lower === 'carb' || lower === 'carbs') {
+    return { $regex: /cereal|grain|pasta|bak|snack|sweet|bread|chip|cookie|cracker|candy/i };
+  }
+
+  // 2. Exact match (case-insensitive) for any specific category
+  const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return { $regex: new RegExp(`^${escaped}$`, 'i') };
+};
 const allowedMealTypes = [
   'Breakfast',
   'Morning Snack',
@@ -58,7 +86,7 @@ const parseOptionalMacro = (raw, label) => {
 const withFoodImageUrl = (req, food) => {
   if (!food) return food;
   const stored = String(food.image ?? '').trim();
-  const image = stored ? toPublicFileUrl(req, stored) : '';
+  const image = stored && req && typeof req.get === 'function' ? toPublicFileUrl(req, stored) : stored;
   return { ...food, image };
 };
 
@@ -80,6 +108,42 @@ const buildUserVisibleFoodQuery = (userId) => ({
   ],
 });
 
+const parseOptionalNumber = (raw, fallback = 0) => {
+  if (raw == null || raw === '') return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+};
+
+const parseNullableNumber = (raw) => {
+  if (raw == null || raw === '') return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+};
+
+const parseServingSizes = (raw) => {
+  if (!raw) return [];
+  let list = raw;
+  if (typeof raw === 'string') {
+    try {
+      list = JSON.parse(raw);
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((s) => s && typeof s === 'object')
+    .map((s) => ({
+      servingDescription: String(s.servingDescription || s.label || '').trim(),
+      servingGrams: parseOptionalNumber(s.servingGrams ?? s.grams, 0),
+      calories: Math.round(parseOptionalNumber(s.calories, 0)),
+      protein: parseOptionalNumber(s.protein, 0),
+      carbs: parseOptionalNumber(s.carbs, 0),
+      fats: parseOptionalNumber(s.fats ?? s.fat, 0),
+    }))
+    .filter((s) => s.servingDescription || s.servingGrams > 0);
+};
+
 // 1. Admin - Add food in global catalog
 const addFoodByAdmin = async (req, res) => {
   try {
@@ -100,6 +164,21 @@ const addFoodByAdmin = async (req, res) => {
       category,
       mealType,
       servingSize,
+      servingGrams,
+      calories_per_serving,
+      protein_g_per_serving,
+      carbs_g_per_serving,
+      fat_g_per_serving,
+      calories_per_100g,
+      protein_g_per_100g,
+      carbs_g_per_100g,
+      fat_g_per_100g,
+      fiber,
+      sugar,
+      sodium,
+      brand,
+      upc,
+      servingSizes,
     } = req.body;
 
     if (!name || calories == null || calories === '') {
@@ -125,16 +204,75 @@ const addFoodByAdmin = async (req, res) => {
       });
     }
 
+    const numProtein = protein != null && protein !== '' ? Number(protein) : 0;
+    const numCarbs = carbs != null && carbs !== '' ? Number(carbs) : 0;
+    const numFats = fats != null && fats !== '' ? Number(fats) : 0;
+    const numServingGrams = parseNullableNumber(servingGrams);
+
+    const calPerServing =
+      calories_per_serving != null && calories_per_serving !== ''
+        ? Math.round(Number(calories_per_serving))
+        : caloriesParsed.value;
+    const proPerServing =
+      protein_g_per_serving != null && protein_g_per_serving !== ''
+        ? Number(protein_g_per_serving)
+        : numProtein;
+    const carbPerServing =
+      carbs_g_per_serving != null && carbs_g_per_serving !== ''
+        ? Number(carbs_g_per_serving)
+        : numCarbs;
+    const fatPerServing =
+      fat_g_per_serving != null && fat_g_per_serving !== ''
+        ? Number(fat_g_per_serving)
+        : numFats;
+
+    let cal100 = parseOptionalNumber(calories_per_100g, 0);
+    let pro100 = parseOptionalNumber(protein_g_per_100g, 0);
+    let carb100 = parseOptionalNumber(carbs_g_per_100g, 0);
+    let fat100 = parseOptionalNumber(fat_g_per_100g, 0);
+
+    if (numServingGrams && numServingGrams > 0) {
+      if (!cal100 && calPerServing > 0) {
+        cal100 = Math.round((calPerServing / numServingGrams) * 100);
+      }
+      if (!pro100 && proPerServing > 0) {
+        pro100 = Math.round((proPerServing / numServingGrams) * 100 * 100) / 100;
+      }
+      if (!carb100 && carbPerServing > 0) {
+        carb100 = Math.round((carbPerServing / numServingGrams) * 100 * 100) / 100;
+      }
+      if (!fat100 && fatPerServing > 0) {
+        fat100 = Math.round((fatPerServing / numServingGrams) * 100 * 100) / 100;
+      }
+    }
+
+    const extraServingSizes = parseServingSizes(servingSizes);
+
     const food = await Food.create({
       createdByAdminId: admin._id,
       name: name.trim(),
       calories: caloriesParsed.value,
-      protein: protein != null && protein !== '' ? Number(protein) : 0,
-      carbs: carbs != null && carbs !== '' ? Number(carbs) : 0,
-      fats: fats != null && fats !== '' ? Number(fats) : 0,
-      category: category && allowedCategories.includes(category) ? category : 'Other',
+      protein: numProtein,
+      carbs: numCarbs,
+      fats: numFats,
+      category: String(category || '').trim() || 'Other',
       mealType: mealType && allowedMealTypes.includes(mealType) ? mealType : 'Other',
       servingSize: (servingSize || '').trim(),
+      servingGrams: numServingGrams,
+      calories_per_serving: calPerServing,
+      protein_g_per_serving: proPerServing,
+      carbs_g_per_serving: carbPerServing,
+      fat_g_per_serving: fatPerServing,
+      calories_per_100g: cal100,
+      protein_g_per_100g: pro100,
+      carbs_g_per_100g: carb100,
+      fat_g_per_100g: fat100,
+      fiber: parseOptionalNumber(fiber, 0),
+      sugar: parseOptionalNumber(sugar, 0),
+      sodium: parseOptionalNumber(sodium, 0),
+      brand: (brand || '').trim(),
+      upc: (upc || '').trim(),
+      servingSizes: extraServingSizes,
       image: req.file?.path || '',
     });
 
@@ -179,6 +317,21 @@ const addFoodByUser = async (req, res) => {
       category,
       mealType,
       servingSize,
+      servingGrams,
+      calories_per_serving,
+      protein_g_per_serving,
+      carbs_g_per_serving,
+      fat_g_per_serving,
+      calories_per_100g,
+      protein_g_per_100g,
+      carbs_g_per_100g,
+      fat_g_per_100g,
+      fiber,
+      sugar,
+      sodium,
+      brand,
+      upc,
+      servingSizes,
     } = req.body;
 
     if (!name || calories == null || calories === '') {
@@ -215,6 +368,44 @@ const addFoodByUser = async (req, res) => {
       });
     }
 
+    const numServingGrams = parseNullableNumber(servingGrams);
+    const calPerServing =
+      calories_per_serving != null && calories_per_serving !== ''
+        ? Math.round(Number(calories_per_serving))
+        : caloriesParsed.value;
+    const proPerServing =
+      protein_g_per_serving != null && protein_g_per_serving !== ''
+        ? Number(protein_g_per_serving)
+        : proteinParsed.value;
+    const carbPerServing =
+      carbs_g_per_serving != null && carbs_g_per_serving !== ''
+        ? Number(carbs_g_per_serving)
+        : carbsParsed.value;
+    const fatPerServing =
+      fat_g_per_serving != null && fat_g_per_serving !== ''
+        ? Number(fat_g_per_serving)
+        : fatsParsed.value;
+
+    let cal100 = parseOptionalNumber(calories_per_100g, 0);
+    let pro100 = parseOptionalNumber(protein_g_per_100g, 0);
+    let carb100 = parseOptionalNumber(carbs_g_per_100g, 0);
+    let fat100 = parseOptionalNumber(fat_g_per_100g, 0);
+
+    if (numServingGrams && numServingGrams > 0) {
+      if (!cal100 && calPerServing > 0) {
+        cal100 = Math.round((calPerServing / numServingGrams) * 100);
+      }
+      if (!pro100 && proPerServing > 0) {
+        pro100 = Math.round((proPerServing / numServingGrams) * 100 * 100) / 100;
+      }
+      if (!carb100 && carbPerServing > 0) {
+        carb100 = Math.round((carbPerServing / numServingGrams) * 100 * 100) / 100;
+      }
+      if (!fat100 && fatPerServing > 0) {
+        fat100 = Math.round((fatPerServing / numServingGrams) * 100 * 100) / 100;
+      }
+    }
+
     const food = await Food.create({
       createdByUserId: user._id,
       name: name.trim(),
@@ -222,9 +413,24 @@ const addFoodByUser = async (req, res) => {
       protein: proteinParsed.value,
       carbs: carbsParsed.value,
       fats: fatsParsed.value,
-      category: category && allowedCategories.includes(category) ? category : 'Other',
-      mealType: 'Other',
+      category: String(category || '').trim() || 'Other',
+      mealType: mealType && allowedMealTypes.includes(mealType) ? mealType : 'Other',
       servingSize: (servingSize || '').trim(),
+      servingGrams: numServingGrams,
+      calories_per_serving: calPerServing,
+      protein_g_per_serving: proPerServing,
+      carbs_g_per_serving: carbPerServing,
+      fat_g_per_serving: fatPerServing,
+      calories_per_100g: cal100,
+      protein_g_per_100g: pro100,
+      carbs_g_per_100g: carb100,
+      fat_g_per_100g: fat100,
+      fiber: parseOptionalNumber(fiber, 0),
+      sugar: parseOptionalNumber(sugar, 0),
+      sodium: parseOptionalNumber(sodium, 0),
+      brand: (brand || '').trim(),
+      upc: (upc || '').trim(),
+      servingSizes: parseServingSizes(servingSizes),
       image: req.file?.path || '',
     });
 
@@ -263,13 +469,14 @@ const getAllFoodsForUser = async (req, res) => {
     const search = (req.query.search || '').trim();
     const query = { status: { $ne: 'Deleted' } };
     Object.assign(query, buildUserVisibleFoodQuery(user._id));
-    if (rawCategory && rawCategory.toLowerCase() !== 'all' && allowedCategories.includes(rawCategory)) {
-      query.category = rawCategory;
+    const catFilter = buildCategoryFilter(req.query.category);
+    if (catFilter) {
+      query.category = catFilter;
     }
     if (mealType && allowedMealTypes.includes(mealType)) query.mealType = mealType;
     if (search) {
       const regex = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
-      query.name = regex;
+      query.$or = [{ name: regex }, { brand: regex }, { servingSize: regex }];
     }
 
     const [foods, total] = await Promise.all([
@@ -302,7 +509,7 @@ const getAllFoodsForUser = async (req, res) => {
   }
 };
 
-// 2. Admin - Get all foods (full list for admin panel)
+// 2. Admin - Get all foods (paginated for admin panel)
 const getAllFoods = async (req, res) => {
   try {
     const admin = await getValidAdmin(req.token);
@@ -317,26 +524,64 @@ const getAllFoods = async (req, res) => {
       }
     }
 
-    const category = req.query.category;
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 10));
+    const skip = (page - 1) * limit;
+
+    const rawCategory = String(req.query.category ?? 'all').trim();
     const mealType = req.query.mealType;
     const search = (req.query.search || '').trim();
     const query = { status: { $ne: 'Deleted' } };
     if (!admin) Object.assign(query, buildUserVisibleFoodQuery(user._id));
-    if (category && allowedCategories.includes(category)) query.category = category;
+    const catFilter = buildCategoryFilter(req.query.category);
+    if (catFilter) {
+      query.category = catFilter;
+    }
     if (mealType && allowedMealTypes.includes(mealType)) query.mealType = mealType;
     if (search) {
       const regex = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
-      query.name = regex;
+      query.$or = [
+        { name: regex },
+        { brand: regex },
+        { servingSize: regex },
+      ];
     }
 
-    const foods = await Food.find(query)
-      .sort({ createdAt: -1 })
-      .lean();
+    const baseCountQuery = { status: { $ne: 'Deleted' } };
+    if (!admin) Object.assign(baseCountQuery, buildUserVisibleFoodQuery(user._id));
+
+    const [foods, total, categoryCountsAgg] = await Promise.all([
+      Food.find(query)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      Food.countDocuments(query),
+      Food.aggregate([
+        { $match: baseCountQuery },
+        { $group: { _id: '$category', count: { $sum: 1 } } },
+      ]),
+    ]);
+
+    const categoryCounts = {};
+    let allCount = 0;
+    (categoryCountsAgg || []).forEach((c) => {
+      if (c._id) categoryCounts[c._id] = c.count;
+      allCount += c.count || 0;
+    });
 
     return res.json({
       success: true,
       message: 'Foods fetched successfully',
-      result: foods.map((food) => withFoodImageUrl(req, food)),
+      result: {
+        items: foods.map((food) => withFoodImageUrl(req, food)),
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit) || 1,
+        categoryCounts,
+        allCount,
+      },
     });
   } catch (err) {
     console.error(err);
@@ -366,8 +611,9 @@ const getMyFoods = async (req, res) => {
       status: { $ne: 'Deleted' },
       createdByUserId: user._id,
     };
-    if (rawCategory && rawCategory.toLowerCase() !== 'all' && allowedCategories.includes(rawCategory)) {
-      query.category = rawCategory;
+    const catFilter = buildCategoryFilter(req.query.category);
+    if (catFilter) {
+      query.category = catFilter;
     }
     if (mealType && allowedMealTypes.includes(mealType)) query.mealType = mealType;
     if (search) {
@@ -494,6 +740,21 @@ const updateFoodByAdmin = async (req, res) => {
       category,
       mealType,
       servingSize,
+      servingGrams,
+      calories_per_serving,
+      protein_g_per_serving,
+      carbs_g_per_serving,
+      fat_g_per_serving,
+      calories_per_100g,
+      protein_g_per_100g,
+      carbs_g_per_100g,
+      fat_g_per_100g,
+      fiber,
+      sugar,
+      sodium,
+      brand,
+      upc,
+      servingSizes,
     } = req.body;
 
     const food = await Food.findOne({ _id: id, status: { $ne: 'Deleted' } });
@@ -547,13 +808,59 @@ const updateFoodByAdmin = async (req, res) => {
     if (protein != null && protein !== '') food.protein = Number(protein);
     if (carbs != null && carbs !== '') food.carbs = Number(carbs);
     if (fats != null && fats !== '') food.fats = Number(fats);
-    if (category && allowedCategories.includes(category)) {
-      food.category = category;
+    if (category !== undefined) {
+      const trimmedCat = String(category || '').trim();
+      if (trimmedCat) food.category = trimmedCat;
     }
     if (mealType && allowedMealTypes.includes(mealType)) {
       food.mealType = mealType;
     }
     if (servingSize != null) food.servingSize = servingSize.trim();
+    if (brand !== undefined) food.brand = String(brand || '').trim();
+    if (upc !== undefined) food.upc = String(upc || '').trim();
+    if (servingGrams !== undefined) food.servingGrams = parseNullableNumber(servingGrams);
+
+    if (calories_per_serving !== undefined && calories_per_serving !== '') {
+      food.calories_per_serving = Math.round(Number(calories_per_serving));
+    } else {
+      food.calories_per_serving = food.calories;
+    }
+    if (protein_g_per_serving !== undefined && protein_g_per_serving !== '') {
+      food.protein_g_per_serving = Number(protein_g_per_serving);
+    } else {
+      food.protein_g_per_serving = food.protein;
+    }
+    if (carbs_g_per_serving !== undefined && carbs_g_per_serving !== '') {
+      food.carbs_g_per_serving = Number(carbs_g_per_serving);
+    } else {
+      food.carbs_g_per_serving = food.carbs;
+    }
+    if (fat_g_per_serving !== undefined && fat_g_per_serving !== '') {
+      food.fat_g_per_serving = Number(fat_g_per_serving);
+    } else {
+      food.fat_g_per_serving = food.fats;
+    }
+
+    if (calories_per_100g !== undefined) {
+      food.calories_per_100g = calories_per_100g !== '' ? parseOptionalNumber(calories_per_100g, 0) : 0;
+    }
+    if (protein_g_per_100g !== undefined) {
+      food.protein_g_per_100g = protein_g_per_100g !== '' ? parseOptionalNumber(protein_g_per_100g, 0) : 0;
+    }
+    if (carbs_g_per_100g !== undefined) {
+      food.carbs_g_per_100g = carbs_g_per_100g !== '' ? parseOptionalNumber(carbs_g_per_100g, 0) : 0;
+    }
+    if (fat_g_per_100g !== undefined) {
+      food.fat_g_per_100g = fat_g_per_100g !== '' ? parseOptionalNumber(fat_g_per_100g, 0) : 0;
+    }
+
+    if (fiber !== undefined) food.fiber = fiber !== '' ? parseOptionalNumber(fiber, 0) : 0;
+    if (sugar !== undefined) food.sugar = sugar !== '' ? parseOptionalNumber(sugar, 0) : 0;
+    if (sodium !== undefined) food.sodium = sodium !== '' ? parseOptionalNumber(sodium, 0) : 0;
+
+    if (servingSizes !== undefined) {
+      food.servingSizes = parseServingSizes(servingSizes);
+    }
     if (req.file?.path) food.image = req.file.path;
 
     await food.save();

@@ -118,7 +118,7 @@ async function syncFoods() {
       const sodium = parseNumber(row.getCell(16).value);
 
       const servingSize = servingDesc || (servingGrams ? `${servingGrams} g` : '100 g');
-      const mappedCategory = mapUsdaCategory(rawCat, { protein, carbs, fats });
+      const sheetCategory = String(rawCat || '').trim() || 'Other';
       const extraServings = servingSizesByFdc.get(fdcId) || [];
 
       foodOps.push({
@@ -145,7 +145,7 @@ async function syncFoods() {
               fiber,
               sugar,
               sodium,
-              category: mappedCategory,
+              category: sheetCategory,
               seedSource: 'usda-sr-legacy',
               status: 'Active',
             },
@@ -201,7 +201,7 @@ async function syncFoods() {
       const fats100 = servingGrams > 0 ? Math.round((fats / servingGrams) * 100 * 100) / 100 : fats;
 
       const servingSize = servingDesc || (servingGrams ? `${servingGrams} g` : '100 g');
-      const mappedCategory = mapUsdaCategory(rawCat, { protein, carbs, fats });
+      const sheetCategory = String(rawCat || '').trim() || 'Other';
 
       brandedOps.push({
         updateOne: {
@@ -228,7 +228,7 @@ async function syncFoods() {
               fiber,
               sugar,
               sodium,
-              category: mappedCategory,
+              category: sheetCategory,
               seedSource: 'usda-branded',
               status: 'Active',
             },

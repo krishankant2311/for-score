@@ -585,7 +585,11 @@ const getAllNotificationsAdmin = async (req, res) => {
 
     const searchRaw = String(req.query.search ?? '').trim();
     if (searchRaw) {
-      const escaped = searchRaw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const escaped = searchRaw
+        .split(/\s+/)
+        .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+        .filter(Boolean)
+        .join('\\s+');
       const re = { $regex: escaped, $options: 'i' };
       query.$or = [{ title: re }, { message: re }, { type: re }, { recipientMode: re }];
     }
